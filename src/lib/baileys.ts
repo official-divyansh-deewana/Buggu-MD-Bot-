@@ -1,16 +1,22 @@
-import makeWASocket, {
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore,
-  WASocket,
-} from '@whiskeysockets/baileys';
+import * as baileysImport from '@whiskeysockets/baileys';
+import type { WASocket } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import fs from 'fs';
 import path from 'path';
 import { handleMessage } from '../handlers/commandHandler';
 import { config } from '../config/config';
 import { db } from '../lib/database';
+
+// Safely extract makeWASocket supporting default or named exports
+const makeWASocket = (baileysImport.default || (baileysImport as any).makeWASocket || baileysImport) as any;
+
+// Extract other required helper functions and enums at runtime
+const {
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
+} = baileysImport;
 
 // Ensure the sessions directory exists
 const sessionsDir = path.join(process.cwd(), config.sessionPath);
@@ -121,10 +127,31 @@ export async function connectToWhatsApp(): Promise<WASocket> {
         return;
       }
 
-      const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-      const reason = lastDisconnect?.error?.message || 'Unknown reason';
+      const lastError = lastDisconnect?.error;
+      const statusCode = (lastError as any)?.output?.statusCode;
+      const reason = lastError?.message || 'Unknown reason';
+      const stack = lastError?.stack || '';
       
       addLog(`[DISCONNECTED] Closed with status: ${statusCode}. Message: ${reason}`);
+
+      // Catch the 'QR refs attempts ended' error to prevent infinite reconnection loops with Pino traces
+      const lastErrorObj = (lastDisconnect?.error || {}) as any;
+      const lastErrorMsg = lastErrorObj?.message || '';
+      const lastErrorStack = lastErrorObj?.stack || '';
+      const lastErrorStr = String(lastDisconnect?.error || '');
+
+      const isQrTimeout = 
+        lastErrorMsg.includes('QR refs attempts ended') || 
+        lastErrorStack.includes('QR refs attempts ended') || 
+        lastErrorStr.includes('QR refs attempts ended') ||
+        reason.includes('QR refs attempts ended') ||
+        stack.includes('QR refs attempts ended');
+
+      if (isQrTimeout) {
+        addLog('[SYSTEM] WhatsApp QR code generation attempts ended without scanning. Reconnection paused to prevent overhead. Please request a new QR or Pairing Code from the dashboard when ready.');
+        resetSessionData();
+        return;
+      }
 
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 

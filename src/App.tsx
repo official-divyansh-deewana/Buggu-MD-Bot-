@@ -49,9 +49,34 @@ interface ServerState {
   config: BotConfig;
 }
 
-const API_BASE = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
+const getApiBase = () => {
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('BUGGU_API_BASE');
+    if (saved) {
+      const trimmed = saved.trim();
+      if (trimmed && trimmed !== 'undefined' && trimmed !== 'null') {
+        return trimmed.replace(/\/$/, '');
+      }
+    }
+  }
+  const url = import.meta.env.VITE_BACKEND_URL;
+  if (url && typeof url === 'string') {
+    const trimmed = url.trim();
+    if (trimmed !== '' && trimmed !== 'undefined' && trimmed !== 'null' && trimmed !== '/') {
+      if (/^https?:\/\//i.test(trimmed)) {
+        return trimmed.replace(/\/$/, '');
+      }
+    }
+  }
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return '';
+};
 
 export default function App() {
+  const [apiBase, setApiBase] = useState<string>(getApiBase());
+  const [apiBaseInput, setApiBaseInput] = useState<string>(getApiBase());
   const [state, setState] = useState<ServerState | null>(null);
   const [phoneInput, setPhoneInput] = useState('');
   const [activeTab, setActiveTab] = useState<'qr' | 'pair'>('qr');
@@ -59,25 +84,66 @@ export default function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [uptimeStr, setUptimeStr] = useState('00h 02m 15s');
+  const [pollFailed, setPollFailed] = useState(false);
+
+  const handleSaveApiBase = () => {
+    setActionError(null);
+    const trimmed = apiBaseInput.trim();
+    if (!trimmed) {
+      localStorage.removeItem('BUGGU_API_BASE');
+      const fallback = getApiBase();
+      setApiBase(fallback);
+      setApiBaseInput(fallback);
+      setPollFailed(false);
+      return;
+    }
+    if (!/^https?:\/\//i.test(trimmed)) {
+      setActionError('The API base URL must start with http:// or https://');
+      return;
+    }
+    const cleanUrl = trimmed.replace(/\/$/, '');
+    localStorage.setItem('BUGGU_API_BASE', cleanUrl);
+    setApiBase(cleanUrl);
+    setApiBaseInput(cleanUrl);
+    setPollFailed(false);
+  };
+
+  const handleClearApiBase = () => {
+    localStorage.removeItem('BUGGU_API_BASE');
+    const fallback = getApiBase();
+    setApiBase(fallback);
+    setApiBaseInput(fallback);
+    setPollFailed(false);
+  };
 
   // Poll status from server every 2 seconds
   useEffect(() => {
     const fetchStatus = async () => {
+      if (!apiBase) {
+        setState(null);
+        return;
+      }
       try {
-        const res = await fetch(`${API_BASE}/api/status`);
+        const res = await fetch(`${apiBase}/api/status`);
         if (res.ok) {
           const data = await res.json();
           setState(data);
+          setPollFailed(false);
+        } else {
+          setState(null);
+          setPollFailed(true);
         }
       } catch (err) {
         console.error('Failed to poll status:', err);
+        setState(null);
+        setPollFailed(true);
       }
     };
 
     fetchStatus();
     const interval = setInterval(fetchStatus, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [apiBase]);
 
   // Update dynamic uptime ticks locally
   useEffect(() => {
@@ -97,6 +163,12 @@ export default function App() {
     setActionError(null);
     setLoading(true);
 
+    if (!apiBase) {
+      setActionError('Please configure an API base URL first.');
+      setLoading(false);
+      return;
+    }
+
     if (!phoneInput.trim()) {
       setActionError('Please enter a valid phone number with country code.');
       setLoading(false);
@@ -104,7 +176,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/pair`, {
+      const res = await fetch(`${apiBase}/api/pair`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phoneNumber: phoneInput.trim() })
@@ -115,7 +187,7 @@ export default function App() {
         setActionError(data.error || 'Failed to request pairing code');
       } else {
         // Force refresh state immediately
-        const statusRes = await fetch(`${API_BASE}/api/status`);
+        const statusRes = await fetch(`${apiBase}/api/status`);
         if (statusRes.ok) {
           const statusData = await statusRes.json();
           setState(statusData);
@@ -129,18 +201,22 @@ export default function App() {
   };
 
   const handleReset = async () => {
+    if (!apiBase) {
+      setActionError('Please configure an API base URL first.');
+      return;
+    }
     if (!window.confirm('Are you sure you want to delete session files and restart the bot? This will disconnect any active session.')) {
       return;
     }
     setActionError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/reset`, { method: 'POST' });
+      const res = await fetch(`${apiBase}/api/reset`, { method: 'POST' });
       const data = await res.json();
       if (res.ok && data.success) {
         setPhoneInput('');
         // force state pull
-        const statusRes = await fetch(`${API_BASE}/api/status`);
+        const statusRes = await fetch(`${apiBase}/api/status`);
         if (statusRes.ok) {
           const statusData = await statusRes.json();
           setState(statusData);
@@ -156,9 +232,13 @@ export default function App() {
   };
 
   const handleConnect = async () => {
+    if (!apiBase) {
+      setActionError('Please configure an API base URL first.');
+      return;
+    }
     setActionError(null);
     try {
-      await fetch(`${API_BASE}/api/connect`, { method: 'POST' });
+      await fetch(`${apiBase}/api/connect`, { method: 'POST' });
     } catch (err) {
       console.error(err);
     }
@@ -345,6 +425,49 @@ export default function App() {
             </div>
           </div>
 
+          {/* API Server Hook Panel */}
+          <div>
+            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-4">
+              API Server Link
+            </h3>
+            <div className="bg-slate-900/80 p-4 border border-slate-800 rounded space-y-3">
+              <p className="text-[10px] text-slate-400 font-mono tracking-wider">
+                Backend API URL
+              </p>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="e.g. https://your-bot.onrender.com"
+                  value={apiBaseInput}
+                  onChange={(e) => setApiBaseInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs font-mono text-slate-200 focus:border-indigo-500 outline-none placeholder-slate-700"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  id="apply-api-btn"
+                  onClick={handleSaveApiBase}
+                  className="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-[10px] font-bold uppercase tracking-wider text-white transition-colors cursor-pointer text-center"
+                >
+                  Connect
+                </button>
+                {localStorage.getItem('BUGGU_API_BASE') && (
+                  <button
+                    id="reset-api-btn"
+                    onClick={handleClearApiBase}
+                    className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-[10px] font-bold uppercase tracking-wider text-slate-300 transition-colors cursor-pointer"
+                    title="Reset to default environment URL"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+              <p id="active-api-text" className="text-[9px] text-slate-500 leading-normal font-mono break-all">
+                {apiBase ? `Active: ${apiBase}` : '⚠️ Offline: No Backend URL linked'}
+              </p>
+            </div>
+          </div>
+
           <div className="mt-8 lg:mt-auto">
             <div className="p-4 border-l-2 border-indigo-500 bg-indigo-500/5">
               <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Developer Credentials</p>
@@ -357,6 +480,24 @@ export default function App() {
         {/* Main Grid Content Area */}
         <main className="flex-1 p-6 sm:p-10 overflow-x-hidden overflow-y-auto">
           
+          {pollFailed && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs sm:text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-pulse">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 shrink-0 text-amber-400 mt-0.5" />
+                <div>
+                  <p className="font-bold">Sync Failed: Backend Server Unreachable (<code className="text-amber-200 break-all">{apiBase}</code>)</p>
+                  <p className="text-slate-400 mt-0.5">Please verify if your Render/external URL is active. If you are previewing inside the AI Studio Web Sandbox, click below to immediately restore fallback to our built-in local backend server.</p>
+                </div>
+              </div>
+              <button
+                onClick={handleClearApiBase}
+                className="shrink-0 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold uppercase tracking-wider text-[10px] rounded transition-all cursor-pointer"
+              >
+                Use Local Applet
+              </button>
+            </div>
+          )}
+
           {/* Spotlight banner container */}
           <div className="mb-8 p-6 rounded-xl bg-slate-900 border border-slate-800 relative overflow-hidden">
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
