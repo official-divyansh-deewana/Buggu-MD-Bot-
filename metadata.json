@@ -1,0 +1,8 @@
+{
+  "name": "BUGGU MD",
+  "description": "A high-performance Baileys-guided WhatsApp Multi-Device bot featuring a powerful modular command handler, simple reconnect handlers, and an elegant modern dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
