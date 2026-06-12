@@ -43,7 +43,7 @@ export const menuCommand: Command = {
       forwardingScore: 999,
       isForwarded: true,
       forwardedNewsletterMessageInfo: {
-        newsletterJid: '120363377933108135@newsletter',
+        newsletterJid: '120363348739987203@newsletter',
         newsletterName: ownerName,
         serverMessageId: 143
       }
@@ -56,7 +56,7 @@ export const menuCommand: Command = {
       sentMsg = await sock.sendMessage(
         remoteJid,
         {
-          image: { url: config.botImage || 'https://i.ibb.co/tT1Z8nV6/x.jpg' },
+          image: { url: config.botImage || 'https://files.catbox.moe/yj7zp0.png' },
           caption: menuCaption,
           contextInfo: contextInfo
         },
@@ -67,7 +67,7 @@ export const menuCommand: Command = {
       try {
         setTimeout(async () => {
           await sock.sendMessage(remoteJid, {
-            audio: { url: 'https://file-to-link-2-b9adb11c51b5.herokuapp.com/dl/6a2bd2e06428ba304855fd93' },
+            audio: { url: 'https://files.catbox.moe/wzodz1.mp3' },
             mimetype: 'audio/mp4',
             ptt: true,
           }, { quoted: msg as any });
