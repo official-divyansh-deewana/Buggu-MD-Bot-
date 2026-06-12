@@ -43,7 +43,7 @@ export const menuCommand: Command = {
       forwardingScore: 999,
       isForwarded: true,
       forwardedNewsletterMessageInfo: {
-        newsletterJid: '120363348739987203@newsletter',
+        newsletterJid: '120363377933108135@newsletter',
         newsletterName: ownerName,
         serverMessageId: 143
       }
@@ -56,7 +56,7 @@ export const menuCommand: Command = {
       sentMsg = await sock.sendMessage(
         remoteJid,
         {
-          image: { url: config.botImage || 'https://files.catbox.moe/yj7zp0.png' },
+          image: { url: config.botImage || 'https://i.ibb.co/tT1Z8nV6/x.jpg' },
           caption: menuCaption,
           contextInfo: contextInfo
         },
