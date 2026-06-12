@@ -1,12 +1,13 @@
 import { Command } from '../types/bot';
 import { db } from '../lib/database';
+import { config } from '../config/config';
 
 export const menuCommand: Command = {
   name: 'menu',
   description: 'Displays the complete and stylish commands menu',
   category: 'System',
   aliases: ['m', 'allmenu', 'commands'],
-  execute: async ({ reply, senderName }) => {
+  execute: async ({ sock, remoteJid, msg, senderName }) => {
     const p = db.data.settings.prefix;
     const bn = db.data.settings.botname;
 
@@ -130,7 +131,10 @@ export const menuCommand: Command = {
 ━━━━━━━━━━━━━━━━━━━━━
 💻 *BUGGU MD — Created by Divyansh Deewana*`;
 
-    await reply(greeting);
+    await sock.sendMessage(remoteJid, {
+      image: { url: config.botImage || 'https://i.ibb.co/tT1Z8nV6/x.jpg' },
+      caption: greeting
+    }, { quoted: msg as any });
   },
 };
 

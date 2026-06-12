@@ -4,6 +4,8 @@ import { createServer as createViteServer } from 'vite';
 import { router as apiRouter } from './src/routes/api';
 import { connectToWhatsApp } from './src/lib/baileys';
 import dotenv from 'dotenv';
+import axios from 'axios';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -70,6 +72,28 @@ async function startServer() {
     console.log(`🌐 Local interface available at Port: ${PORT}`);
     console.log(`=======================================================`);
   });
+
+  // 24x7 Keep-Alive self-ping scheduler to prevent Render / Container auto-sleep or idling
+  const selfPingInterval = 90 * 1000; // 1.5 minutes
+  setInterval(async () => {
+    try {
+      // Local self-ping
+      console.log('[KEEP-ALIVE] Pinging local instance to maintain high event loop activity...');
+      await axios.get(`http://localhost:${PORT}/api/status`).catch(() => null);
+
+      // External self-ping if deployed on Render or other container hosts
+      const externalUrl = process.env.RENDER_EXTERNAL_URL || process.env.VITE_BACKEND_URL;
+      if (externalUrl) {
+        const cleanUrl = externalUrl.endsWith('/') ? externalUrl : `${externalUrl}/`;
+        console.log(`[KEEP-ALIVE] Ping external endpoint to reset Render sleep timer: ${cleanUrl}api/status`);
+        await axios.get(`${cleanUrl}api/status`).catch((e) => {
+          console.warn('[KEEP-ALIVE] External self-ping failed, this is normal:', e.message);
+        });
+      }
+    } catch (err: any) {
+      console.error('[KEEP-ALIVE] Keep-alive task error:', err.message || err);
+    }
+  }, selfPingInterval);
 }
 
 startServer();

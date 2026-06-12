@@ -6,7 +6,7 @@ export const aliveCommand: Command = {
   description: 'Verifies if the bot is alive and running',
   category: 'system',
   aliases: ['status', 'on'],
-  execute: async ({ reply }) => {
+  execute: async ({ sock, remoteJid, msg }) => {
     const text = `🟢 *${config.botName} IS ALIVE!*
 
 🚀 *Current State:* Full Active & Fast
@@ -16,7 +16,10 @@ export const aliveCommand: Command = {
 
 _"Everything is working perfectly. Type *${config.prefix}menu* to see what I can do for you!"_`;
     
-    await reply(text);
+    await sock.sendMessage(remoteJid, {
+      image: { url: config.botImage || 'https://i.ibb.co/tT1Z8nV6/x.jpg' },
+      caption: text
+    }, { quoted: msg as any });
   },
 };
 

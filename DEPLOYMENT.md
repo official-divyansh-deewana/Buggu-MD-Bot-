@@ -80,7 +80,7 @@ Configure these secrets in the **Environment** settings panel on Render:
 | **`GEMINI_API_KEY`** | `AIzaSy...` | Your Google Dev AI Studio API key. Crucial for custom command execution. |
 | **`BOT_NAME`** | `BUGGU MD` | Name displayed by the WhatsApp bot client. |
 | **`OWNER_NAME`** | `Divyansh Deewana` | Your developer or owner signature. |
-| **`OWNER_NUMBER`** | `918882829982` | WhatsApp phone number of the administrator (with country prefix, no spaces). |
+| **`OWNER_NUMBER`** | `917014631313` | WhatsApp phone number of the administrator (with country prefix, no spaces). |
 | **`PREFIX`** | `.` | Command trigger prefix. Default is `.`. |
 | **`NODE_ENV`** | `production` | Switches express and Vite compilers into optimized production pathways. |
 
