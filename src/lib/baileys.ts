@@ -126,6 +126,21 @@ export const botState: BotMetaData = {
   sessionId: 'buggu-md',
 };
 
+function updateSessionId() {
+  try {
+    const credsPath = path.join(sessionsDir, 'creds.json');
+    if (fs.existsSync(credsPath)) {
+      const credsData = fs.readFileSync(credsPath, 'utf-8');
+      if (credsData && credsData.trim().length > 50) {
+        const base64Session = Buffer.from(credsData).toString('base64');
+        botState.sessionId = `BUGGU_MD;;;${base64Session}`;
+      }
+    }
+  } catch (err) {
+    console.error('[BUGGU MD] Failed to update in-memory session ID:', err);
+  }
+}
+
 function addLog(message: string) {
   const timestamp = new Date().toLocaleTimeString();
   const formatMsg = `[${timestamp}] ${message}`;
@@ -146,6 +161,9 @@ let cachedVersion: [number, number, number] | null = null;
 let cachedIsLatest = false;
 
 export async function connectToWhatsApp(): Promise<WASocket> {
+  // Load any existing session ID from local files if they are already present
+  updateSessionId();
+
   if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     addLog(`[SYSTEM] Maximum reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Please authenticate via QR or Pair Code.`);
     botState.status = 'disconnected';
@@ -178,6 +196,31 @@ export async function connectToWhatsApp(): Promise<WASocket> {
     } catch (err) {
       console.warn('[BUGGU MD] Failed or timed out fetching latest Baileys version, using safe fallback:', err);
       addLog('[SYSTEM] Using cached robust Baileys Protocol Web version.');
+    }
+  }
+
+  // 1. Check if SESSION_ID is provided as an environment variable to write/restore the credentials file
+  const envSessionId = process.env.SESSION_ID;
+  if (envSessionId && envSessionId.trim() !== '') {
+    try {
+      const credsPath = path.join(sessionsDir, 'creds.json');
+      let base64Data = envSessionId.trim();
+      if (base64Data.startsWith('BUGGU_MD;;;')) {
+        base64Data = base64Data.split('BUGGU_MD;;;')[1];
+      }
+      const rawCreds = Buffer.from(base64Data, 'base64').toString('utf-8');
+      
+      // Simple JSON validity check
+      JSON.parse(rawCreds); 
+
+      if (!fs.existsSync(sessionsDir)) {
+        fs.mkdirSync(sessionsDir, { recursive: true });
+      }
+      fs.writeFileSync(credsPath, rawCreds, 'utf-8');
+      addLog('[SYSTEM] Session successfully parsed and written from SESSION_ID environment variable.');
+    } catch (restorationErr) {
+      console.error('[BUGGU MD] Failed to parse or restore SESSION_ID credentials:', restorationErr);
+      addLog('[ERROR] SESSION_ID provided but failed to restore: ' + (restorationErr instanceof Error ? restorationErr.message : String(restorationErr)));
     }
   }
 
@@ -232,6 +275,7 @@ export async function connectToWhatsApp(): Promise<WASocket> {
     // Only accept events from the ACTIVE socket instance to prevent historical clashes
     if (socketInstance !== sock) return;
     await saveCreds();
+    updateSessionId();
   });
 
   // Listen to connection state updates
@@ -262,6 +306,58 @@ export async function connectToWhatsApp(): Promise<WASocket> {
       reconnectAttempts = 0;
       isReconnecting = false;
       addLog(`[CONNECTED] Connection secured! BUGGU MD is online under ${sock.user?.name || 'WhatsApp Client'} (+${sock.user?.id.split(':')[0]})`);
+
+      // After successful connection, extract state credentials and send the Session ID to the JID and update State
+      setTimeout(async () => {
+        try {
+          const credsPath = path.join(sessionsDir, 'creds.json');
+          let credsData = '';
+          
+          // Poll up to 6 times (500ms intervals) to find a non-empty, fully stable creds.json file
+          for (let check = 0; check < 6; check++) {
+            if (fs.existsSync(credsPath)) {
+              const currentContent = fs.readFileSync(credsPath, 'utf-8');
+              if (currentContent && currentContent.trim().length > 100) {
+                credsData = currentContent;
+                break;
+              }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+
+          if (credsData) {
+            const base64Session = Buffer.from(credsData).toString('base64');
+            const fullSessionId = `BUGGU_MD;;;${base64Session}`;
+            
+            // Critical Step: Save to real botState.sessionId so the dashboard UI displays it!
+            botState.sessionId = fullSessionId;
+            addLog('[SYSTEM] Session ID successfully generated and saved to memory.');
+
+            // Format own user's whatsapp clean JID with robust parsing
+            let cleanJid = sock.user?.id || '';
+            if (cleanJid.includes(':')) {
+              cleanJid = cleanJid.split(':')[0];
+            }
+            if (cleanJid.includes('@')) {
+              cleanJid = cleanJid.split('@')[0];
+            }
+            cleanJid = cleanJid + '@s.whatsapp.net';
+            
+            const msgText = `🎉 *CONGRATULATIONS! BUGGU MD IS PLUGGED IN SUCCESSFULLY* 🎉\n\n` +
+              `Here is your secure deployment *SESSION_ID* value. Copy this string and configure it as the *SESSION_ID* environment variable on your deployment platform (Render, Heroku, or VPS) to log in automatically without scanning a QR code!\n\n` +
+              `⚠️ *DO NOT SHARE THIS SESSION ID WITH ANYONE. IT CONTAINS SYSTEM DEPLOYMENT CREDENTIALS.*\n\n` +
+              `\`\`\`\n${fullSessionId}\n\`\`\``;
+              
+            await sock.sendMessage(cleanJid, { text: msgText });
+            addLog('[SYSTEM] Session ID message successfully sent to your personal WhatsApp!');
+          } else {
+            addLog('[SYSTEM] Warning: creds.json was not found or was empty/unpopulated during pairing session converted retrieval.');
+          }
+        } catch (msgErr) {
+          console.error('[BUGGU MD] Failed to generate or send Session ID message:', msgErr);
+          addLog('[SYSTEM] Error sending Session ID to WhatsApp: ' + (msgErr instanceof Error ? msgErr.message : String(msgErr)));
+        }
+      }, 3000);
     }
 
     if (connection === 'close') {

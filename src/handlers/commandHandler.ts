@@ -116,6 +116,21 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     // Reject message if it does not have payload
     if (!msg.message) return;
 
+    // C. Get text body of message
+    const body =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      msg.message.imageMessage?.caption ||
+      msg.message.videoMessage?.caption ||
+      '';
+
+    const sender = msg.key.participant || msg.key.remoteJid || '';
+    const cleanSender = sender.split(':')[0] + '@s.whatsapp.net';
+    const senderName = msg.pushName || 'User';
+
+    // Log incoming message metadata for deployment logs and monitoring
+    console.log(`[MESSAGE] Incoming: ${body ? `"${body}"` : '[Media/System Message]'} from: ${senderName} (${cleanSender}) | JID: ${remoteJid}`);
+
     // B. Hook 2: Capture deleted messages for Anti-Delete logs
     const isDelete = msg.message.protocolMessage?.type === 0;
     if (isDelete && remoteJid.endsWith('@g.us')) {
@@ -134,20 +149,12 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
       }
     }
 
-    // Reject loop feedback if sent by self
-    if (msg.key.fromMe) return;
+    // G. Prefix routing and parser
+    const prefix = db.data.settings.prefix || config.prefix;
+    const isCommand = body.trim().startsWith(prefix);
 
-    // C. Get text body of message
-    const body =
-      msg.message.conversation ||
-      msg.message.extendedTextMessage?.text ||
-      msg.message.imageMessage?.caption ||
-      msg.message.videoMessage?.caption ||
-      '';
-
-    const sender = msg.key.participant || msg.key.remoteJid || '';
-    const cleanSender = sender.split(':')[0] + '@s.whatsapp.net';
-    const senderName = msg.pushName || 'User';
+    // Reject loop feedback if sent by self, unless it is a command prefix trigger
+    if (msg.key.fromMe && !isCommand) return;
 
     // D. Cache standard message into history
     if (body && msg.key.id) {
@@ -187,7 +194,7 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
 
     // F. Hook 4: Group protections (Anti-link / Anti-badword)
     const isGroup = remoteJid.endsWith('@g.us');
-    const isOwner = cleanSender.includes(config.ownerNumber) || config.ownerNumber.includes(cleanSender.split('@')[0]);
+    const isOwner = msg.key.fromMe || cleanSender.includes(config.ownerNumber) || config.ownerNumber.includes(cleanSender.split('@')[0]);
 
     if (isGroup && !isOwner) {
       const dbGroup = db.getGroup(remoteJid);
@@ -258,7 +265,6 @@ export async function handleMessage(sock: WASocket, msg: proto.IWebMessageInfo) 
     }
 
     // G. Prefix routing and parser
-    const prefix = db.data.settings.prefix || config.prefix;
     const trimmedBody = body.trim();
     if (!trimmedBody.startsWith(prefix)) return;
 

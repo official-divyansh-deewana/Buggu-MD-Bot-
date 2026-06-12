@@ -84,6 +84,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [sessionCopied, setSessionCopied] = useState(false);
   const [uptimeStr, setUptimeStr] = useState('00h 02m 15s');
   const [pollFailed, setPollFailed] = useState(false);
 
@@ -273,6 +274,13 @@ export default function App() {
     navigator.clipboard.writeText(state.pairingCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copySessionId = () => {
+    if (!state?.sessionId || state.sessionId === 'buggu-md') return;
+    navigator.clipboard.writeText(state.sessionId);
+    setSessionCopied(true);
+    setTimeout(() => setSessionCopied(false), 2000);
   };
 
   // Status mapping
@@ -607,21 +615,65 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex-1 flex flex-col justify-center items-center py-4">
-                  {activeTab === 'qr' ? (
+                <div className="flex-1 flex flex-col justify-center items-center py-4 w-full h-full">
+                  {state?.status === 'connected' ? (
+                    <div className="w-full max-w-lg mx-auto space-y-6 text-center animate-fade-in">
+                      <div className="flex flex-col items-center">
+                        <div className="h-14 w-14 bg-emerald-500/10 rounded-full border border-emerald-500/30 text-emerald-400 flex items-center justify-center mb-3 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+                          <CheckCircle2 className="h-7 w-7 text-emerald-400" />
+                        </div>
+                        <h4 className="text-lg font-black tracking-tight text-white uppercase">BUGGU MD is online</h4>
+                        <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                          Account linked successfully. Your secure deployment Session ID credentials have been prepared.
+                        </p>
+                      </div>
+
+                      {/* Display Session ID card */}
+                      <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 text-left space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono font-bold tracking-widest text-indigo-400 uppercase">
+                            Your Session ID (Base64 String)
+                          </span>
+                          <span className="text-[9px] font-mono text-emerald-400 uppercase bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded font-bold">
+                            READY TO EXPORT
+                          </span>
+                        </div>
+                        
+                        <div className="bg-slate-905 border border-slate-800 p-3 rounded font-mono text-[11px] text-indigo-300 select-all overflow-x-auto break-all max-h-32 scrollbar-thin">
+                          {state?.sessionId && state.sessionId !== 'buggu-md' ? state.sessionId : 'Retrieving secured session details... Wait 5 seconds.'}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                          <p className="text-[9px] text-slate-500 italic">
+                            *Click Copy and use this as your <strong>SESSION_ID</strong> env variable.
+                          </p>
+                          <button
+                            onClick={copySessionId}
+                            disabled={!state?.sessionId || state.sessionId === 'buggu-md'}
+                            className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 px-3.5 py-1.5 text-white font-bold text-[10px] uppercase tracking-wider rounded transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 self-end sm:self-auto"
+                          >
+                            {sessionCopied ? '✅ COPIED!' : '📋 COPY SESSION ID'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Setup Deployment Instructions */}
+                      <div className="text-left bg-slate-900/50 border border-slate-800/40 rounded-lg p-4 space-y-2 text-xs text-slate-300">
+                        <p className="font-bold text-slate-200 font-mono text-[10px] uppercase tracking-wider text-indigo-400">
+                          🚀 Deployment Setup Guide
+                        </p>
+                        <ol className="list-decimal list-inside space-y-1 text-slate-400 leading-normal text-[11px]">
+                          <li>Copy the full <span className="text-indigo-300">SESSION_ID</span> block starting with <code className="text-indigo-400 font-mono">BUGGU_MD;;;</code>.</li>
+                          <li>Go to your host cloud platform (Render, Railway, VPS, etc.).</li>
+                          <li>Add a new environment variable named <strong className="text-white">SESSION_ID</strong> and paste the copied string.</li>
+                          <li>Redeploy your application. The bot will automatically authenticate and remain active.</li>
+                        </ol>
+                      </div>
+                    </div>
+                  ) : activeTab === 'qr' ? (
                     /* QR Display Code block */
                     <div className="text-center flex flex-col items-center">
-                      {state?.status === 'connected' ? (
-                        <div className="p-6 flex flex-col items-center">
-                          <div className="h-14 w-14 bg-emerald-500/10 rounded-full border border-emerald-500/30 text-emerald-400 flex items-center justify-center mb-4">
-                            <CheckCircle2 className="h-7 w-7 text-emerald-400" />
-                          </div>
-                          <h4 className="text-md font-bold text-white">Bot linked successfully!</h4>
-                          <p className="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
-                            Active session locked. The console handler is online and listening.
-                          </p>
-                        </div>
-                      ) : state?.qrImageUrl ? (
+                      {state?.qrImageUrl ? (
                         <div className="space-y-4">
                           <div className="p-2.5 bg-white rounded inline-block shadow-[0_0_25px_rgba(99,102,241,0.15)]">
                             <img
@@ -646,69 +698,59 @@ export default function App() {
                   ) : (
                     /* Pairing Code Input block */
                     <div className="w-full max-w-md mx-auto space-y-6">
-                      {state?.status === 'connected' ? (
-                        <div className="text-center p-6 flex flex-col items-center">
-                          <div className="h-14 w-14 bg-emerald-500/10 rounded-full border border-emerald-500/30 text-emerald-400 flex items-center justify-center mb-4">
-                            <CheckCircle2 className="h-7 w-7 text-emerald-400" />
-                          </div>
-                          <h4 className="text-md font-bold text-white">Pairing Sequence Active</h4>
-                          <p className="text-xs text-slate-400 mt-1">Multi-device session files configured correctly.</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-5">
-                          <form onSubmit={handlePair} className="space-y-3">
-                            <div>
-                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
-                                Mobile Number with Country Code
-                              </label>
-                              <div className="relative">
-                                <input
-                                  type="text"
-                                  value={phoneInput}
-                                  onChange={(e) => setPhoneInput(e.target.value)}
-                                  placeholder="e.g., 917014631313"
-                                  className="w-full bg-slate-950 border border-slate-800 rounded px-4 py-3 text-xs font-mono focus:border-indigo-500 text-white outline-none placeholder-slate-600"
-                                />
-                                <div className="absolute right-3 top-3 select-none pointer-events-none text-[9px] bg-slate-905 border border-slate-800 text-slate-400 px-1 rounded font-mono">
-                                  No spaces
-                                </div>
+                      <div className="space-y-5">
+                        <form onSubmit={handlePair} className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-mono">
+                              Mobile Number with Country Code
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={phoneInput}
+                                onChange={(e) => setPhoneInput(e.target.value)}
+                                placeholder="e.g., 917014631313"
+                                className="w-full bg-slate-950 border border-slate-800 rounded px-4 py-3 text-xs font-mono focus:border-indigo-500 text-white outline-none placeholder-slate-600"
+                              />
+                              <div className="absolute right-3 top-3 select-none pointer-events-none text-[9px] bg-slate-905 border border-slate-800 text-slate-400 px-1 rounded font-mono">
+                                No spaces
                               </div>
+                            </div>
+                          </div>
+                          
+                          <button
+                            type="submit"
+                            disabled={loading || !phoneInput}
+                            className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/30 text-white rounded font-bold text-xs tracking-wider uppercase cursor-pointer transition-all duration-150"
+                          >
+                            {loading ? 'GENERATING CODE...' : 'GENERATE 8-DIGIT PAIRING CODE'}
+                          </button>
+                        </form>
+
+                        {state?.pairingCode && (
+                          <div className="space-y-3">
+                            <div className="p-4 bg-slate-950 border border-slate-800 rounded text-center relative overflow-hidden">
+                              <span className="text-[9px] font-bold tracking-widest text-indigo-400 uppercase block mb-1">
+                                WhatsApp Verification Code
+                              </span>
+                              <div
+                                onClick={copyPairingCode}
+                                className="inline-block text-xl sm:text-2xl font-mono tracking-[0.25rem] font-black text-white hover:text-indigo-400 transition-colors cursor-pointer py-1"
+                              >
+                                {state.pairingCode}
+                              </div>
+                              <p className="text-[10px] text-slate-400 hover:text-slate-300 mt-2 cursor-pointer" onClick={copyPairingCode}>
+                                {copied ? '✅ COPIED TO CLIPBOARD' : 'CLICK CODE TO COPY'}
+                              </p>
                             </div>
                             
-                            <button
-                              type="submit"
-                              disabled={loading || !phoneInput}
-                              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/30 text-white rounded font-bold text-xs tracking-wider uppercase cursor-pointer transition-all duration-150"
-                            >
-                              {loading ? 'GENERATING CODE...' : 'GENERATE 8-DIGIT PAIRING CODE'}
-                            </button>
-                          </form>
-
-                          {state?.pairingCode && (
-                            <div className="space-y-3">
-                              <div className="p-4 bg-slate-950 border border-slate-800 rounded text-center relative overflow-hidden">
-                                <span className="text-[9px] font-bold tracking-widest text-indigo-400 uppercase block mb-1">
-                                  WhatsApp Verification Code
-                                </span>
-                                <div
-                                  onClick={copyPairingCode}
-                                  className="inline-block text-xl sm:text-2xl font-mono tracking-[0.25rem] font-black text-white hover:text-indigo-400 transition-colors cursor-pointer py-1"
-                                >
-                                  {state.pairingCode}
-                                </div>
-                                <p className="text-[10px] text-slate-400 hover:text-slate-300 mt-2 cursor-pointer" onClick={copyPairingCode}>
-                                  {copied ? '✅ COPIED TO CLIPBOARD' : 'CLICK CODE TO COPY'}
-                                </p>
-                              </div>
-                              
-                              <div className="p-3 bg-indigo-950/40 border border-indigo-900/40 rounded text-left flex items-center justify-between text-xs font-mono">
-                                <span className="text-slate-400 uppercase">Session ID:</span>
-                                <span className="text-indigo-300 font-bold">{state?.sessionId || 'buggu-md'}</span>
-                              </div>
+                            <div className="p-3 bg-indigo-950/40 border border-indigo-900/40 rounded text-left flex items-center justify-between text-xs font-mono">
+                              <span className="text-slate-400 uppercase">Session ID:</span>
+                              <span className="text-indigo-300 font-bold">{state?.sessionId || 'buggu-md'}</span>
                             </div>
-                          )}
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
