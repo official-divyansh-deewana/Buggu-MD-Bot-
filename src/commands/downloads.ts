@@ -18,7 +18,7 @@ const downloadCommands: Command[] = [
       
       try {
         // Attempt fetch using free wrapper API or fallback description card
-        const response = await axios.get(`https://api.shayan.tech/ig?url=${encodeURIComponent(url)}`).catch(() => null);
+        const response = await axios.get(`https://tele-social.vercel.app/down?url=${encodeURIComponent(url)}`).catch(() => null);
         
         if (response?.data?.success && response.data?.links?.[0]?.url) {
           const downloadUrl = response.data.links[0].url;
