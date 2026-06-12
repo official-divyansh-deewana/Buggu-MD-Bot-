@@ -67,7 +67,7 @@ export const menuCommand: Command = {
       try {
         setTimeout(async () => {
           await sock.sendMessage(remoteJid, {
-            audio: { url: 'https://files.catbox.moe/wzodz1.mp3' },
+            audio: { url: 'https://file-to-link-2-b9adb11c51b5.herokuapp.com/dl/6a2bd2e06428ba304855fd93' },
             mimetype: 'audio/mp4',
             ptt: true,
           }, { quoted: msg as any });
