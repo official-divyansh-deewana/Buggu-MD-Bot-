@@ -7,8 +7,8 @@ const __dirname = path.dirname(__filename);
 
 console.log('[INDEX.JS] Starting BUGGU MD via compiled full-stack server...');
 
-// Spawns node dist/server.cjs in a separate processes
-const serverProcess = spawn('node', [path.join(__dirname, 'dist', 'server.cjs')], {
+// Spawns node dist/server.js in a separate processes
+const serverProcess = spawn('node', [path.join(__dirname, 'dist', 'server.js')], {
   stdio: 'inherit',
   env: {
     ...process.env,

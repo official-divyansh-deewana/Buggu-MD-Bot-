@@ -38,6 +38,7 @@ router.get('/status', async (req, res) => {
     phoneNumber: botState.phoneNumber,
     connectionLogs: botState.connectionLogs,
     recentCommands: recentCommandLogs,
+    sessionId: botState.sessionId,
     config: {
       botName: config.botName,
       ownerName: config.ownerName,
@@ -73,9 +74,6 @@ router.post('/pair', async (req, res) => {
 
   try {
     addRouteLog(`Incoming pairing code request for: ${phoneNumber}`);
-    // Clear any active socket first to ensure we can request the code cleanly
-    resetSessionData();
-    
     const code = await generatePairingCodeForNumber(phoneNumber);
     res.json({ success: true, pairingCode: code });
   } catch (err: any) {
@@ -84,10 +82,10 @@ router.post('/pair', async (req, res) => {
 });
 
 // Clear credentials and force-restart socket
-router.post('/reset', (req, res) => {
+router.post('/reset', async (req, res) => {
   try {
     addRouteLog('Session reset requested from web dashboard.');
-    resetSessionData();
+    await resetSessionData();
     // Restart empty socket in background so user has a fresh QR
     setTimeout(() => {
       connectToWhatsApp();

@@ -7,16 +7,100 @@ import { handleMessage } from '../handlers/commandHandler';
 import { config } from '../config/config';
 import { db } from '../lib/database';
 
-// Safely extract makeWASocket supporting default or named exports
-const makeWASocket = (baileysImport.default || (baileysImport as any).makeWASocket || baileysImport) as any;
+// A highly robust resolver for Baileys module to support both raw ESM (tsx) and compiled CJS (esbuild __toESM wrapper) environments
+function resolveMakeWASocket(): any {
+  const mod = baileysImport as any;
+  if (!mod) {
+    throw new Error('Baileys module is undefined or failed to load');
+  }
 
-// Extract other required helper functions and enums at runtime
-const {
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore,
-} = baileysImport;
+  console.log('[BUGGU MD DIAGNOSTIC] Resolving makeWASocket. Module type:', typeof mod, 'Keys:', Object.keys(mod));
+
+  // 1. Direct function check
+  if (typeof mod === 'function') {
+    console.log('[BUGGU MD DIAGNOSTIC] Resolved: Module is a function direct-cast.');
+    return mod;
+  }
+
+  // 2. Named export check
+  if (typeof mod.makeWASocket === 'function') {
+    console.log('[BUGGU MD DIAGNOSTIC] Resolved: Named makeWASocket export found.');
+    return mod.makeWASocket;
+  }
+
+  // 3. Simple default export check
+  if (mod.default && typeof mod.default === 'function') {
+    console.log('[BUGGU MD DIAGNOSTIC] Resolved: Default function export found.');
+    return mod.default;
+  }
+
+  // 4. Double-wrapped default export (specifically hits esbuild __toESM external issue)
+  if (mod.default && typeof mod.default === 'object') {
+    const def = mod.default;
+    console.log('[BUGGU MD DIAGNOSTIC] Checking mod.default object keys:', Object.keys(def));
+    if (typeof def.makeWASocket === 'function') {
+      console.log('[BUGGU MD DIAGNOSTIC] Resolved: mod.default.makeWASocket function found.');
+      return def.makeWASocket;
+    }
+    if (def.default && typeof def.default === 'function') {
+      console.log('[BUGGU MD DIAGNOSTIC] Resolved: mod.default.default function found.');
+      return def.default;
+    }
+    if (def.default && typeof def.default === 'object') {
+      if (typeof def.default.makeWASocket === 'function') {
+        console.log('[BUGGU MD DIAGNOSTIC] Resolved: mod.default.default.makeWASocket function found.');
+        return def.default.makeWASocket;
+      }
+      if (def.default.default && typeof def.default.default === 'function') {
+        console.log('[BUGGU MD DIAGNOSTIC] Resolved: mod.default.default.default function found.');
+        return def.default.default;
+      }
+    }
+  }
+
+  // 5. Scan properties
+  for (const key of Object.keys(mod)) {
+    if (typeof mod[key] === 'function' && key.toLowerCase() === 'makewasocket') {
+      console.log(`[BUGGU MD DIAGNOSTIC] Resolved: Scanned property '${key}' is makeWASocket.`);
+      return mod[key];
+    }
+  }
+
+  throw new Error('Could not resolve makeWASocket. Module keys: ' + Object.keys(mod).join(', '));
+}
+
+function resolveHelper(exportName: string): any {
+  const mod = baileysImport as any;
+  if (!mod) return undefined;
+
+  // 1. Check direct property
+  if (mod[exportName] !== undefined) {
+    return mod[exportName];
+  }
+
+  // 2. Check simple default property
+  if (mod.default && typeof mod.default === 'object') {
+    const def = mod.default;
+    if (def[exportName] !== undefined) {
+      return def[exportName];
+    }
+    // 3. Check double-wrapped default properties
+    if (def.default && typeof def.default === 'object') {
+      const def2 = def.default;
+      if (def2[exportName] !== undefined) {
+        return def2[exportName];
+      }
+    }
+  }
+
+  return undefined;
+}
+
+const makeWASocket = resolveMakeWASocket();
+const useMultiFileAuthState = resolveHelper('useMultiFileAuthState');
+const DisconnectReason = resolveHelper('DisconnectReason');
+const fetchLatestBaileysVersion = resolveHelper('fetchLatestBaileysVersion');
+const makeCacheableSignalKeyStore = resolveHelper('makeCacheableSignalKeyStore');
 
 // Ensure the sessions directory exists
 const sessionsDir = path.join(process.cwd(), config.sessionPath);
@@ -30,6 +114,7 @@ export interface BotMetaData {
   pairingCode: string | null;
   phoneNumber: string | null;
   connectionLogs: string[];
+  sessionId: string;
 }
 
 export const botState: BotMetaData = {
@@ -38,6 +123,7 @@ export const botState: BotMetaData = {
   pairingCode: null,
   phoneNumber: null,
   connectionLogs: ['[SYSTEM] System initialized. Ready to connect.'],
+  sessionId: 'buggu-md',
 };
 
 function addLog(message: string) {
@@ -55,6 +141,10 @@ let isReconnecting = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 15;
 
+// Memoize fetched Baileys version to avoid slow network lookups on subsequent connections
+let cachedVersion: [number, number, number] | null = null;
+let cachedIsLatest = false;
+
 export async function connectToWhatsApp(): Promise<WASocket> {
   if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     addLog(`[SYSTEM] Maximum reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Please authenticate via QR or Pair Code.`);
@@ -65,22 +155,70 @@ export async function connectToWhatsApp(): Promise<WASocket> {
   addLog('[SYSTEM] Initializing WhatsApp connection...');
   botState.status = 'connecting';
 
-  // Fetch the latest version of Baileys for longevity
-  const { version, isLatest } = await fetchLatestBaileysVersion();
-  addLog(`[SYSTEM] Baileys Protocol Web version: ${version.join('.')}, isLatest: ${isLatest}`);
+  // Fetch the latest version of Baileys for longevity with a 1.5s fast timeout to prevent hangs
+  let version: [number, number, number] = [2, 3000, 1017531287];
+  let isLatest = false;
 
-  // Retrieve auth state from sessions directory
-  const { state, saveCreds } = await useMultiFileAuthState(sessionsDir);
+  if (cachedVersion) {
+    version = cachedVersion;
+    isLatest = cachedIsLatest;
+    addLog(`[SYSTEM] Using cached Baileys Protocol Web version: ${version.join('.')}`);
+  } else {
+    try {
+      const versionPromise = fetchLatestBaileysVersion();
+      const timeoutPromise = new Promise<{ version: [number, number, number]; isLatest: boolean }>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout fetching WhatsApp web version')), 1500)
+      );
+      const result = await Promise.race([versionPromise, timeoutPromise]);
+      version = result.version;
+      isLatest = result.isLatest;
+      cachedVersion = version;
+      cachedIsLatest = isLatest;
+      addLog(`[SYSTEM] Baileys Protocol Web version: ${version.join('.')}, isLatest: ${isLatest}`);
+    } catch (err) {
+      console.warn('[BUGGU MD] Failed or timed out fetching latest Baileys version, using safe fallback:', err);
+      addLog('[SYSTEM] Using cached robust Baileys Protocol Web version.');
+    }
+  }
 
-  // Configure Pino logger with user config level
-  const logger = pino({ level: config.logLevel });
+  // Retrieve auth state from sessions directory with automated corruption healing
+  let authStateResult: any;
+  try {
+    authStateResult = await useMultiFileAuthState(sessionsDir);
+  } catch (authErr) {
+    console.error('[BUGGU MD] Authentication state files are corrupted or unreadable. Self-healing...', authErr);
+    addLog('[SYSTEM] Corrupted session files detected. Auto-healing sessions...');
+    try {
+      if (fs.existsSync(sessionsDir)) {
+        const files = fs.readdirSync(sessionsDir);
+        for (const file of files) {
+          fs.rmSync(path.join(sessionsDir, file), { recursive: true, force: true });
+        }
+      }
+    } catch (rmErr) {
+      console.error('[BUGGU MD] Failed to empty corrupted directory:', rmErr);
+    }
+    authStateResult = await useMultiFileAuthState(sessionsDir);
+  }
+
+  const { state, saveCreds } = authStateResult;
+
+  // Configure Pino logger as completely silent to minimize overhead and prevent logging bugs
+  const logger = pino({
+    level: 'silent',
+  });
+
+  // Safe validation of makeCacheableSignalKeyStore to ensure backward compatibility
+  const keysStore = typeof makeCacheableSignalKeyStore === 'function'
+    ? makeCacheableSignalKeyStore(state.keys, logger)
+    : state.keys;
 
   // Initialize socket connection
   const sock = makeWASocket({
     version,
     auth: {
       creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, logger),
+      keys: keysStore,
     },
     printQRInTerminal: false,
     logger,
@@ -91,11 +229,19 @@ export async function connectToWhatsApp(): Promise<WASocket> {
 
   // Listen to credentials save events
   sock.ev.on('creds.update', async () => {
+    // Only accept events from the ACTIVE socket instance to prevent historical clashes
+    if (socketInstance !== sock) return;
     await saveCreds();
   });
 
   // Listen to connection state updates
   sock.ev.on('connection.update', async (update) => {
+    // Guard all connection state updates to reject old socket instances
+    if (socketInstance !== sock) {
+      addLog('[SYSTEM] Ignoring obsolete connection event.');
+      return;
+    }
+
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
@@ -121,7 +267,6 @@ export async function connectToWhatsApp(): Promise<WASocket> {
     if (connection === 'close') {
       botState.status = 'disconnected';
       
-      // If this socket has been superseded or reset manually, ignore reconnect / reset triggers
       if (socketInstance !== sock) {
         addLog('[SYSTEM] Socket connection closed (socket instance was superseded or manually reset).');
         return;
@@ -134,7 +279,6 @@ export async function connectToWhatsApp(): Promise<WASocket> {
       
       addLog(`[DISCONNECTED] Closed with status: ${statusCode}. Message: ${reason}`);
 
-      // Catch the 'QR refs attempts ended' error to prevent infinite reconnection loops with Pino traces
       const lastErrorObj = (lastDisconnect?.error || {}) as any;
       const lastErrorMsg = lastErrorObj?.message || '';
       const lastErrorStack = lastErrorObj?.stack || '';
@@ -149,7 +293,7 @@ export async function connectToWhatsApp(): Promise<WASocket> {
 
       if (isQrTimeout) {
         addLog('[SYSTEM] WhatsApp QR code generation attempts ended without scanning. Reconnection paused to prevent overhead. Please request a new QR or Pairing Code from the dashboard when ready.');
-        resetSessionData();
+        await resetSessionData();
         return;
       }
 
@@ -165,13 +309,14 @@ export async function connectToWhatsApp(): Promise<WASocket> {
         }, 5000);
       } else {
         addLog('[AUTH_FAILED] WhatsApp session has expired or been logged out. Resetting session parameters.');
-        resetSessionData();
+        await resetSessionData();
       }
     }
   });
 
   // Listen to group participant memberships (welcome and goodbye triggers)
   sock.ev.on('group-participants.update', async (part) => {
+    if (socketInstance !== sock) return;
     try {
       const { id, participants, action } = part;
       const groupData = db.getGroup(id);
@@ -202,14 +347,12 @@ export async function connectToWhatsApp(): Promise<WASocket> {
 
   // Listen to incoming messages (WhatsApp Web message receive event)
   sock.ev.on('messages.upsert', async (chatUpdate) => {
+    if (socketInstance !== sock) return;
     try {
       if (chatUpdate.type !== 'notify') return;
 
       for (const msg of chatUpdate.messages) {
-        // Skip ephemeral status messages or notifications without message contents
         if (!msg.message) continue;
-        
-        // Pass message to the modular command handler
         await handleMessage(sock, msg);
       }
     } catch (e) {
@@ -223,7 +366,7 @@ export async function connectToWhatsApp(): Promise<WASocket> {
 /**
  * Resets physical local session folder files to allow reauth
  */
-export function resetSessionData() {
+export async function resetSessionData(): Promise<void> {
   try {
     const oldSock = socketInstance;
     socketInstance = null;
@@ -242,21 +385,21 @@ export function resetSessionData() {
     botState.phoneNumber = null;
     reconnectAttempts = 0;
 
-    // Delete session files after a tiny delay to ensure file lock is released by Baileys
-    setTimeout(() => {
-      try {
-        if (fs.existsSync(sessionsDir)) {
-          const files = fs.readdirSync(sessionsDir);
-          for (const file of files) {
-            fs.rmSync(path.join(sessionsDir, file), { recursive: true, force: true });
-          }
-          addLog('[SYSTEM] All local session files cleared. Ready for clean pairing.');
+    // Wait short delay to allow file handles to be released
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    try {
+      if (fs.existsSync(sessionsDir)) {
+        const files = fs.readdirSync(sessionsDir);
+        for (const file of files) {
+          fs.rmSync(path.join(sessionsDir, file), { recursive: true, force: true });
         }
-      } catch (error) {
-        console.error('Error clearing session data:', error);
-        addLog(`[ERROR] Failed to clear session data: ${error instanceof Error ? error.message : String(error)}`);
+        addLog('[SYSTEM] All local session files cleared. Ready for clean pairing.');
       }
-    }, 100);
+    } catch (error) {
+      console.error('Error clearing session data:', error);
+      addLog(`[ERROR] Failed to clear session data: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
   } catch (outerError) {
     console.error('Error during session reset process:', outerError);
@@ -273,30 +416,47 @@ export async function generatePairingCodeForNumber(phoneNumber: string): Promise
     throw new Error('Please enter a valid phone number with country code (e.g., 917014631313).');
   }
 
+  // Force clean active connections and clear sessions first to prevent lock conflicts
+  await resetSessionData();
+
   botState.phoneNumber = cleanedNumber;
   botState.status = 'pairing_code';
   addLog(`[PAIRING] Pairing code requested for phone number: +${cleanedNumber}`);
 
-  // If there's no socketInstance or if we are disconnected, boot up connection first
-  if (!socketInstance) {
-    await connectToWhatsApp();
-  }
+  // Boot up fresh new connection
+  await connectToWhatsApp();
 
-  // Sleep slightly to guarantee the socket initiates fully
-  await new Promise((resolve) => setTimeout(resolve, 2000));
+  // Sleep very briefly to register the transport socket handles
+  await new Promise((resolve) => setTimeout(resolve, 600));
 
   if (!socketInstance) {
     throw new Error('Failed to initialize socket connection for pairing code.');
   }
 
-  try {
-    // Generate pairing code
-    const code = await socketInstance.requestPairingCode(cleanedNumber);
-    botState.pairingCode = code;
-    addLog(`[PAIRING] Successfully generated pairing code: ${code}`);
-    return code;
-  } catch (err) {
-    addLog(`[PAIRING_ERROR] Failed to generate code: ${err instanceof Error ? err.message : String(err)}`);
-    throw err;
+  let code = '';
+  let lastError: any = null;
+  
+  // Adaptive progressive retry logic with backoffs for instantaneous pairing code request
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (!socketInstance) break;
+      addLog(`[PAIRING] Requesting pairing code from WhatsApp (Attempt ${attempt}/3)...`);
+      code = await socketInstance.requestPairingCode(cleanedNumber);
+      if (code) {
+        botState.pairingCode = code;
+        addLog(`[PAIRING] Successfully generated pairing code: ${code}`);
+        return code;
+      }
+    } catch (err) {
+      lastError = err;
+      addLog(`[PAIRING_TRY_ERROR] Attempt ${attempt}/3 failed: ${err instanceof Error ? err.message : String(err)}`);
+      
+      // Gradually backoff if WhatsApp API is busy or ratelimiting
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
+    }
   }
+
+  throw lastError || new Error('Failed to generate pairing code after 3 attempts.');
 }

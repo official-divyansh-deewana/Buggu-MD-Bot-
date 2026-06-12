@@ -47,6 +47,7 @@ interface ServerState {
   connectionLogs: string[];
   recentCommands: CommandLog[];
   config: BotConfig;
+  sessionId: string;
 }
 
 const getApiBase = () => {
@@ -118,31 +119,54 @@ export default function App() {
 
   // Poll status from server every 2 seconds
   useEffect(() => {
+    let active = true;
     const fetchStatus = async () => {
       if (!apiBase) {
-        setState(null);
+        if (active) setState(null);
         return;
       }
       try {
         const res = await fetch(`${apiBase}/api/status`);
         if (res.ok) {
           const data = await res.json();
-          setState(data);
-          setPollFailed(false);
+          if (active) {
+            setState(data);
+            setPollFailed(false);
+          }
         } else {
+          throw new Error('Response not OK');
+        }
+      } catch (err) {
+        console.warn('Failed to poll status from ' + apiBase, err);
+        if (active) {
           setState(null);
           setPollFailed(true);
         }
-      } catch (err) {
-        console.error('Failed to poll status:', err);
-        setState(null);
-        setPollFailed(true);
+
+        // Auto-heal: If the configured URL is dead, but our local origin is responding, switch cleanly!
+        if (apiBase !== window.location.origin) {
+          try {
+            const localRes = await fetch(`${window.location.origin}/api/status`);
+            if (localRes.ok && active) {
+              console.log('[AUTO-HEAL] Unreachable external server detected. Local sandbox server is alive. Auto-healing backend to:', window.location.origin);
+              localStorage.removeItem('BUGGU_API_BASE');
+              setApiBase(window.location.origin);
+              setApiBaseInput(window.location.origin);
+              setPollFailed(false);
+            }
+          } catch (localErr) {
+            // Local origin is also down or unreachable
+          }
+        }
       }
     };
 
     fetchStatus();
     const interval = setInterval(fetchStatus, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, [apiBase]);
 
   // Update dynamic uptime ticks locally
@@ -422,6 +446,16 @@ export default function App() {
                   <p className="font-mono text-sm text-slate-300">Port 3000 Ingress</p>
                 </div>
               </div>
+
+              <div className="bg-slate-900/80 p-4 border border-slate-800 rounded">
+                <p className="text-[10px] text-slate-500 uppercase font-mono tracking-wider mb-1">Active Session ID</p>
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-emerald-400" />
+                  <p className="font-mono text-sm text-emerald-300 font-bold break-all">
+                    {state?.sessionId || 'buggu-md'}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -651,19 +685,26 @@ export default function App() {
                           </form>
 
                           {state?.pairingCode && (
-                            <div className="p-4 bg-slate-950 border border-slate-800 rounded text-center relative overflow-hidden">
-                              <span className="text-[9px] font-bold tracking-widest text-indigo-400 uppercase block mb-1">
-                                WhatsApp Verification Code
-                              </span>
-                              <div
-                                onClick={copyPairingCode}
-                                className="inline-block text-xl sm:text-2xl font-mono tracking-[0.25rem] font-black text-white hover:text-indigo-400 transition-colors cursor-pointer py-1"
-                              >
-                                {state.pairingCode}
+                            <div className="space-y-3">
+                              <div className="p-4 bg-slate-950 border border-slate-800 rounded text-center relative overflow-hidden">
+                                <span className="text-[9px] font-bold tracking-widest text-indigo-400 uppercase block mb-1">
+                                  WhatsApp Verification Code
+                                </span>
+                                <div
+                                  onClick={copyPairingCode}
+                                  className="inline-block text-xl sm:text-2xl font-mono tracking-[0.25rem] font-black text-white hover:text-indigo-400 transition-colors cursor-pointer py-1"
+                                >
+                                  {state.pairingCode}
+                                </div>
+                                <p className="text-[10px] text-slate-400 hover:text-slate-300 mt-2 cursor-pointer" onClick={copyPairingCode}>
+                                  {copied ? '✅ COPIED TO CLIPBOARD' : 'CLICK CODE TO COPY'}
+                                </p>
                               </div>
-                              <p className="text-[10px] text-slate-400 hover:text-slate-300 mt-2 cursor-pointer" onClick={copyPairingCode}>
-                                {copied ? '✅ COPIED TO CLIPBOARD' : 'CLICK CODE TO COPY'}
-                              </p>
+                              
+                              <div className="p-3 bg-indigo-950/40 border border-indigo-900/40 rounded text-left flex items-center justify-between text-xs font-mono">
+                                <span className="text-slate-400 uppercase">Session ID:</span>
+                                <span className="text-indigo-300 font-bold">{state?.sessionId || 'buggu-md'}</span>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -709,6 +750,40 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Auto Suggestions on Log Error Patterns */}
+                {(() => {
+                  const hasErrors = state?.connectionLogs?.some(log => {
+                    const u = log.toUpperCase();
+                    return u.includes('CONNECTION CLOSED') || 
+                           u.includes('TIMEOUT') || 
+                           u.includes('DISCONNECTED') || 
+                           u.includes('CLOSED WITH STATUS') ||
+                           u.includes('SOCKET HANG UP') ||
+                           u.includes('ERROR') || 
+                           u.includes('FAILED');
+                  });
+
+                  if (hasErrors && state?.status !== 'connected') {
+                    return (
+                      <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded flex items-center justify-between gap-3 animate-pulse">
+                        <div className="flex items-center gap-2 text-rose-400">
+                          <AlertCircle className="h-4.5 w-4.5 shrink-0" />
+                          <span className="text-[11px] font-mono leading-relaxed">
+                            Terminal socket disconnect / timeout detected. Would you like to reconnect?
+                          </span>
+                        </div>
+                        <button
+                          onClick={handleConnect}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap self-end sm:self-auto"
+                        >
+                          Reconnect
+                        </button>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
             </div>
