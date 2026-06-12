@@ -1,56 +1,83 @@
 import { Command } from '../types/bot';
 import axios from 'axios';
 
-// Helper to extract downloadable media URL from various potential response formats
+// Helper to extract downloadable media URL from various potential response formats recursively
 function extractMediaUrl(data: any): string | null {
   if (!data) return null;
-  
-  // 1) Direct string fields
-  const directFields = ['video', 'videoUrl', 'url', 'link', 'download', 'downloadUrl', 'result'];
-  for (const field of directFields) {
-    if (typeof data[field] === 'string' && data[field].startsWith('http')) {
-      return data[field];
-    }
-  }
-  
-  // 2) Nested 'data' object fields
-  if (data.data && typeof data.data === 'object') {
-    const nestedDataFields = ['video', 'videoUrl', 'url', 'link', 'download', 'downloadUrl'];
-    for (const field of nestedDataFields) {
-      if (typeof data.data[field] === 'string' && data.data[field].startsWith('http')) {
-        return data.data[field];
-      }
-    }
-  }
 
-  // 3) Nested 'result' object fields
-  if (data.result && typeof data.result === 'object') {
-    const nestedResultFields = ['video', 'videoUrl', 'url', 'link', 'download', 'downloadUrl'];
-    for (const field of nestedResultFields) {
-      if (typeof data.result[field] === 'string' && data.result[field].startsWith('http')) {
-        return data.result[field];
-      }
-    }
-  }
-  
-  // 4) Links array parsing (generic format)
-  if (Array.isArray(data.links)) {
-    for (const item of data.links) {
-      if (typeof item === 'string' && item.startsWith('http')) {
-        return item;
-      }
-      if (item && typeof item === 'object' && typeof item.url === 'string' && item.url.startsWith('http')) {
-        return item.url;
-      }
-    }
-  }
+  const findUrl = (obj: any, depth = 0): string | null => {
+    if (depth > 4 || !obj || typeof obj !== 'object') return null;
 
-  // 5) TikTok and special downloader fallback keys
-  if (data.BK9 && typeof data.BK9 === 'object' && data.BK9.video && typeof data.BK9.video.noWatermark === 'string') {
-    return data.BK9.video.noWatermark;
-  }
-  
-  return null;
+    // 1) Known primary direct and nested media fields in popular social downloader APIs
+    const keys = [
+      'video_url', 'videoUrl', 'video', 'video_link', 'videoLink',
+      'url', 'downloadUrl', 'download_url', 'link', 'download', 'dl_url',
+      'result', 'media_url', 'media_link', 'image_url', 'imageUrl', 'image', 'mp4'
+    ];
+    for (const key of keys) {
+      if (typeof obj[key] === 'string' && obj[key].startsWith('http')) {
+        return obj[key];
+      }
+    }
+
+    // 2) If it's an Array of objects or strings
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        if (typeof item === 'string' && item.startsWith('http')) {
+          return item;
+        }
+        const res = findUrl(item, depth + 1);
+        if (res) return res;
+      }
+    }
+
+    // 3) Key check: search any key that contains typical media phrases
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      if (typeof val === 'string' && val.startsWith('http')) {
+        const lowerKey = key.toLowerCase();
+        if (
+          lowerKey.includes('url') || 
+          lowerKey.includes('link') || 
+          lowerKey.includes('download') || 
+          lowerKey.includes('video') || 
+          lowerKey.includes('image') || 
+          lowerKey.includes('media') || 
+          lowerKey.endsWith('mp4')
+        ) {
+          return val;
+        }
+      }
+      if (val && typeof val === 'object') {
+        const res = findUrl(val, depth + 1);
+        if (res) return res;
+      }
+    }
+
+    // 4) Ultimate fallback check: return the first string starting with 'http' ending with common media formats
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      if (typeof val === 'string' && val.startsWith('http')) {
+        const lowerVal = val.toLowerCase();
+        if (
+          lowerVal.includes('.mp4') || 
+          lowerVal.includes('.jpg') || 
+          lowerVal.includes('.png') || 
+          lowerVal.includes('.jpeg') || 
+          lowerVal.includes('.gif') || 
+          lowerVal.includes('cdn') || 
+          lowerVal.includes('fbcdn') || 
+          lowerVal.includes('instagram')
+        ) {
+          return val;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  return findUrl(data);
 }
 
 // Helper to safely extract error message from API responses
@@ -72,32 +99,71 @@ const downloadCommands: Command[] = [
         return;
       }
 
-      await reply('🔄 *Instagram Engine Sync-Up:* Fetching media parameters via Tele-Social Network. Please wait...');
+      await reply('🔄 *Instagram Engine Sync-Up:* Querying high-speed delivery networks. Please wait...');
       
       try {
-        // Attempt fetch using the high-performance tele-social Vercel API
-        const response = await axios.get(`https://tele-social.vercel.app/down?url=${encodeURIComponent(url)}`, { timeout: 15000 }).catch(() => null);
-        
-        const extractedUrl = extractMediaUrl(response?.data);
-        
-        if (extractedUrl) {
-          await sock.sendMessage(remoteJid, {
-            video: { url: extractedUrl },
-            caption: '📸 *Instagram Reel Download Success!* ✨\n\nShared via BUGGU MD Bot client.'
-          }, { quoted: msg as any });
-        } else {
-          // Fallback to secondary shayan API
-          const fallbackResponse = await axios.get(`https://api.shayan.tech/ig?url=${encodeURIComponent(url)}`, { timeout: 10000 }).catch(() => null);
-          if (fallbackResponse?.data?.success && fallbackResponse.data?.links?.[0]?.url) {
-            const fallbackUrl = fallbackResponse.data.links[0].url;
+        let extractedMedia: string | null = null;
+        let methodUsed = '';
+
+        // Pipeline 1: David Cyril API (Extremely stable downloader endpoint)
+        try {
+          const cyrilRes = await axios.get(`https://api.davidcyriltech.my.id/download/instagram?url=${encodeURIComponent(url)}`, { timeout: 12000 });
+          if (cyrilRes?.data) {
+            extractedMedia = extractMediaUrl(cyrilRes.data);
+            if (extractedMedia) methodUsed = 'David Cyril Global';
+          }
+        } catch (err: any) {
+          console.warn('[PIPELINE 1 ERROR]:', err.message);
+        }
+
+        // Pipeline 2: Tele-Social Downloader API
+        if (!extractedMedia) {
+          try {
+            const teleRes = await axios.get(`https://tele-social.vercel.app/down?url=${encodeURIComponent(url)}`, { timeout: 12000 });
+            if (teleRes?.data) {
+              extractedMedia = extractMediaUrl(teleRes.data);
+              if (extractedMedia) methodUsed = 'Tele-Social Engine';
+            }
+          } catch (err: any) {
+            console.warn('[PIPELINE 2 ERROR]:', err.message);
+          }
+        }
+
+        // Pipeline 3: Shayan Tech API
+        if (!extractedMedia) {
+          try {
+            const shayanRes = await axios.get(`https://api.shayan.tech/ig?url=${encodeURIComponent(url)}`, { timeout: 10000 });
+            if (shayanRes?.data?.success && shayanRes.data?.links?.[0]?.url) {
+              extractedMedia = shayanRes.data.links[0].url;
+              methodUsed = 'Shayan Secondary';
+            }
+          } catch (err: any) {
+            console.warn('[PIPELINE 3 ERROR]:', err.message);
+          }
+        }
+
+        if (extractedMedia) {
+          const isImage = /\.(jpg|jpeg|png|webp)/i.test(extractedMedia) || extractedMedia.toLowerCase().includes('image') || extractedMedia.includes('cdninstagram') && !extractedMedia.includes('.mp4');
+
+          if (isImage) {
             await sock.sendMessage(remoteJid, {
-              video: { url: fallbackUrl },
-              caption: '📸 *Instagram Download Success (Secondary Pipeline)!* ⚡'
+              image: { url: extractedMedia },
+              caption: '📸 *Instagram Photo Download Success!* ✨\n\nShared via BUGGU MD Bot client.'
             }, { quoted: msg as any });
           } else {
-            const errMsg = getApiErrorMessage(response?.data, 'The requested Instagram media could not be resolved by the downloader engine.');
-            await reply(`❌ *Downloader Failure:* ${errMsg}`);
+            await sock.sendMessage(remoteJid, {
+              video: { url: extractedMedia },
+              caption: '📸 *Instagram Reel Download Success!* ✨\n\nShared via BUGGU MD Bot client.'
+            }, { quoted: msg as any });
           }
+
+          // Trigger feedback emoji
+          try {
+            await sock.sendMessage(remoteJid, { react: { text: '✅', key: msg.key } });
+          } catch {}
+
+        } else {
+          await reply('❌ *Downloader Failure:* All social pipelines failed to resolve download streams for this content. It might be a private profile, deleted post, or age-restricted.');
         }
       } catch (err: any) {
         await reply(`❌ *Scraping Interruption:* An error occurred while contacting the media server: ${err.message}`);
@@ -342,6 +408,80 @@ const downloadCommands: Command[] = [
         return;
       }
       await reply(`📂 *MediaFire Asset Server Connection:*\n\n📦 *Target:* ${url}\n📊 Status: Ready to parse direct download tokens...`);
+    }
+  },
+  {
+    name: 'apk',
+    description: 'Search & download android application files (APKs)',
+    category: 'Downloads',
+    execute: async ({ reply, args, remoteJid, sock, msg }) => {
+      const appName = args.join(' ');
+      if (!appName) {
+        await reply('⚠️ Please provide an app name. Example: `.apk whatsapp`');
+        return;
+      }
+
+      // Add simple loading indicator
+      try {
+        await sock.sendMessage(remoteJid, { react: { text: '⏳', key: msg.key } });
+      } catch {}
+
+      await reply(`📦 *BUGGU MD APK Downloader:* Querying NexOracle registries for "${appName}"...`);
+
+      try {
+        const response = await axios.get('https://api.nexoracle.com/downloader/apk', {
+          params: {
+            apikey: 'free_key@maher_apis',
+            q: appName,
+          },
+          timeout: 15000,
+        });
+
+        if (!response.data || response.data.status !== 200 || !response.data.result) {
+          await reply('❌ Unable to find this APK. Please try another app name.');
+          try {
+            await sock.sendMessage(remoteJid, { react: { text: '❌', key: msg.key } });
+          } catch {}
+          return;
+        }
+
+        const { name, lastup, package: packName, size, icon, dllink } = response.data.result;
+
+        // Send confirmation preview with app icon
+        await sock.sendMessage(remoteJid, {
+          image: { url: icon || 'https://raw.githubusercontent.com/github/explore/main/topics/android/android.png' },
+          caption: `🟢 *App Found:* ${name}\n📦 *Package:* ${packName}\n📏 *Size:* ${size}\n📅 *Last Update:* ${lastup}\n\n🤖 *Direct Delivery:* Sending APK file to your chat...`
+        }, { quoted: msg as any });
+
+        // Build file details with custom name and power tags
+        const renamedFileName = `${name.replace(/[^a-zA-Z0-9]/g, '_')}_BUGGU_MD.apk`;
+        const captionDetails = `📦 *APK Package Successfully Delivered!*\n\n` +
+          `🔖 *AppName:* ${name}\n` +
+          `📦 *Package:* ${packName}\n` +
+          `📏 *File Size:* ${size}\n` +
+          `📅 *Last Update:* ${lastup}\n\n` +
+          `⚡️ _Delivered by BUGGU MD Client Platform_`;
+
+        // Send APK file as Document directly via url streaming to keep memory clean
+        await sock.sendMessage(remoteJid, {
+          document: { url: dllink },
+          mimetype: 'application/vnd.android.package-archive',
+          fileName: renamedFileName,
+          caption: captionDetails
+        }, { quoted: msg as any });
+
+        // Add success reaction
+        try {
+          await sock.sendMessage(remoteJid, { react: { text: '✅', key: msg.key } });
+        } catch {}
+
+      } catch (err: any) {
+        console.error('APK command failed:', err.message);
+        await reply(`❌ *Downloader Failed:* We encountered an error while resolving or fetching the APK content.`);
+        try {
+          await sock.sendMessage(remoteJid, { react: { text: '❌', key: msg.key } });
+        } catch {}
+      }
     }
   }
 ];

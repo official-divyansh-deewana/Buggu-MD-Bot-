@@ -1,6 +1,6 @@
 import { Command } from '../types/bot';
 import QRCode from 'qrcode';
-import { downloadContentFromMessage } from '@whiskeysockets/baileys';
+import { downloadContentFromMessage, downloadMediaMessage } from '@whiskeysockets/baileys';
 
 const converterCommands: Command[] = [
   {
@@ -61,50 +61,76 @@ const converterCommands: Command[] = [
     description: 'Convert an audio / video clip into push-to-talk voice Note',
     category: 'Converter',
     execute: async ({ sock, remoteJid, msg, reply }) => {
-      const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-      if (!quotedMsg) {
+      const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+      const isQuoted = !!quoted;
+      const targetMsg = isQuoted ? quoted : msg.message;
+
+      const audioMessage = targetMsg?.audioMessage;
+      const videoMessage = targetMsg?.videoMessage;
+      const documentMessage = targetMsg?.documentMessage;
+
+      if (!audioMessage && !videoMessage && !(documentMessage && (documentMessage.mimetype?.startsWith('audio/') || documentMessage.mimetype?.startsWith('video/')))) {
         await reply('❌ *Error:* Please reply/quote an audio or video message with `.tovoice` to convert it to a voice note.');
-        return;
-      }
-
-      const audioMessage = quotedMsg.audioMessage;
-      const videoMessage = quotedMsg.videoMessage;
-      const documentMessage = quotedMsg.documentMessage;
-
-      let targetMessage: any = null;
-      let mode: 'audio' | 'video' | 'document' = 'audio';
-
-      if (audioMessage) {
-        targetMessage = audioMessage;
-        mode = 'audio';
-      } else if (videoMessage) {
-        targetMessage = videoMessage;
-        mode = 'video';
-      } else if (documentMessage && (documentMessage.mimetype?.startsWith('audio/') || documentMessage.mimetype?.startsWith('video/'))) {
-        targetMessage = documentMessage;
-        mode = 'document';
-      }
-
-      if (!targetMessage) {
-        await reply('❌ *Unsupported Media:* The replied message is not a valid audio or video clip.');
         return;
       }
 
       await reply('🎙️ *Transcoding Voice Note:* Extracting audio streams and constructing push-to-talk package...');
 
       try {
-        const stream = await downloadContentFromMessage({
-          directPath: targetMessage.directPath,
-          mediaKey: targetMessage.mediaKey,
-          url: targetMessage.url,
-        }, mode);
+        let buffer: Buffer;
 
-        let buffer = Buffer.alloc(0);
-        for await (const chunk of stream) {
-          buffer = Buffer.concat([buffer, chunk]);
+        try {
+          if (isQuoted) {
+            const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+            const fakeMessage = {
+              key: {
+                remoteJid: remoteJid,
+                id: contextInfo?.stanzaId,
+                participant: contextInfo?.participant || remoteJid,
+              },
+              message: quoted
+            };
+            buffer = await downloadMediaMessage(
+              fakeMessage as any,
+              'buffer',
+              {},
+              {
+                logger: sock.logger,
+                reuploadRequest: sock.updateMediaMessage
+              }
+            ) as Buffer;
+          } else {
+            buffer = await downloadMediaMessage(
+              msg as any,
+              'buffer',
+              {},
+              {
+                logger: sock.logger,
+                reuploadRequest: sock.updateMediaMessage
+              }
+            ) as Buffer;
+          }
+        } catch (downloadErr: any) {
+          console.warn('[downloadMediaMessage failed, trying fallback manual decryption]:', downloadErr.message);
+          
+          const targetMedia = audioMessage || videoMessage || documentMessage;
+          const mode = audioMessage ? 'audio' : (videoMessage ? 'video' : 'document');
+          if (!targetMedia) throw downloadErr;
+
+          const stream = await downloadContentFromMessage({
+            directPath: targetMedia.directPath,
+            mediaKey: targetMedia.mediaKey,
+            url: targetMedia.url,
+          }, mode);
+
+          let b = Buffer.alloc(0);
+          for await (const chunk of stream) {
+            b = Buffer.concat([b, chunk]);
+          }
+          buffer = b;
         }
 
-        if (buffer.length === 0) {
+        if (!buffer || buffer.length === 0) {
           throw new Error('Downloaded media payload is empty.');
         }
 
@@ -114,6 +140,10 @@ const converterCommands: Command[] = [
           mimetype: 'audio/mp4',
           ptt: true,
         }, { quoted: msg as any });
+
+        try {
+          await sock.sendMessage(remoteJid, { react: { text: '✅', key: msg.key } });
+        } catch {}
 
       } catch (err: any) {
         console.error('[tovoice error]:', err);

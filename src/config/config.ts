@@ -10,8 +10,8 @@ export const config = {
   sessionPath: 'sessions/buggu-md',
   port: parseInt(process.env.PORT || '3000', 10),
   logLevel: process.env.LOG_LEVEL || 'silent', // 'silent' keeps the Baileys terminal clean, 'info' / 'debug' for diagnostic logging
-  ownerImage: 'https://i.ibb.co/twfrpLDy/x.jpg',
-  botImage: 'https://i.ibb.co/tT1Z8nV6/x.jpg',
+  ownerImage: 'https://files.catbox.moe/yj7zp0.png',
+  botImage: 'https://files.catbox.moe/yj7zp0.png',
 };
 
 export default config;

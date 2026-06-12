@@ -1,5 +1,8 @@
 import { Command } from '../types/bot';
 import { db } from '../lib/database';
+import { downloadContentFromMessage, downloadMediaMessage } from '@whiskeysockets/baileys';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const assertAdminAndBotAdmin = async (
   sock: any,
@@ -399,6 +402,158 @@ const groupCommands: Command[] = [
       const warns = groupData.warns[targetJid] || 0;
 
       await reply(`📊 *Warning Tally Profile:* @${targetJid.split('@')[0]} has *${warns}/3* active violations on record.`, { mentions: [targetJid] });
+    }
+  },
+  {
+    name: 'setgdesc',
+    description: 'Set group workspace description details (Admin only)',
+    category: 'Group',
+    execute: async ({ sock, remoteJid, reply, args, sender, isOwner }) => {
+      const audited = await assertAdminAndBotAdmin(sock, remoteJid, sender, isOwner, reply);
+      if (!audited) return;
+
+      if (!audited.isAdmin) {
+        await reply('❌ *Access Denied:* Group administrative privileges are required.');
+        return;
+      }
+      if (!audited.isBotAdmin) {
+        await reply('❌ *Missing Rights:* I need to be a group administrator to edit settings.');
+        return;
+      }
+
+      const descInput = args.join(' ').trim();
+      if (!descInput) {
+        await reply('❌ *Syntax Error:* Provide a description text. Usage: `.setgdesc <description>`');
+        return;
+      }
+
+      try {
+        await sock.groupUpdateDescription(remoteJid, descInput);
+        await reply('✅ *Workspace Update:* Group description successfully updated!');
+      } catch (err: any) {
+        await reply(`❌ *Error:* Failed to alter group description parameters: ${err.message}`);
+      }
+    }
+  },
+  {
+    name: 'setgname',
+    description: 'Set group subject title details (Admin only)',
+    category: 'Group',
+    execute: async ({ sock, remoteJid, reply, args, sender, isOwner }) => {
+      const audited = await assertAdminAndBotAdmin(sock, remoteJid, sender, isOwner, reply);
+      if (!audited) return;
+
+      if (!audited.isAdmin) {
+        await reply('❌ *Access Denied:* Group administrators only.');
+        return;
+      }
+      if (!audited.isBotAdmin) {
+        await reply('❌ *Missing Rights:* I must be a group administrator.');
+        return;
+      }
+
+      const nameInput = args.join(' ').trim();
+      if (!nameInput) {
+        await reply('❌ *Syntax Error:* Type a group title. Usage: `.setgname <new title>`');
+        return;
+      }
+
+      try {
+        await sock.groupUpdateSubject(remoteJid, nameInput);
+        await reply('✅ *Workspace Update:* Group name successfully redefined!');
+      } catch (err: any) {
+        await reply(`❌ *Error:* Failed to alter group name parameter: ${err.message}`);
+      }
+    }
+  },
+  {
+    name: 'setgpp',
+    description: 'Set group profile picture from a marked/quoted image (Admin only)',
+    category: 'Group',
+    execute: async ({ sock, remoteJid, reply, msg, sender, isOwner }) => {
+      const audited = await assertAdminAndBotAdmin(sock, remoteJid, sender, isOwner, reply);
+      if (!audited) return;
+
+      if (!audited.isAdmin) {
+        await reply('❌ *Access Denied:* Group administrators only.');
+        return;
+      }
+      if (!audited.isBotAdmin) {
+        await reply('❌ *Missing Rights:* Make sure I am group administrator first.');
+        return;
+      }
+
+      const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+      const imageMessage = quoted?.imageMessage || msg.message?.imageMessage;
+
+      if (!imageMessage) {
+        await reply('❌ *Validation Error:* Reply to an image or attach an image with `.setgpp` command.');
+        return;
+      }
+
+      try {
+        let buffer: Buffer;
+        try {
+          if (quoted) {
+            const contextInfo = msg.message?.extendedTextMessage?.contextInfo;
+            const fakeMessage = {
+              key: {
+                remoteJid: remoteJid,
+                id: contextInfo?.stanzaId,
+                participant: contextInfo?.participant || remoteJid,
+              },
+              message: quoted
+            };
+            buffer = await downloadMediaMessage(
+              fakeMessage as any,
+              'buffer',
+              {},
+              {
+                logger: sock.logger,
+                reuploadRequest: sock.updateMediaMessage
+              }
+            ) as Buffer;
+          } else {
+            buffer = await downloadMediaMessage(
+              msg as any,
+              'buffer',
+              {},
+              {
+                logger: sock.logger,
+                reuploadRequest: sock.updateMediaMessage
+              }
+            ) as Buffer;
+          }
+        } catch (downloadErr: any) {
+          console.warn('[setgpp downloadMediaMessage failed, trying fallback manual decryption]:', downloadErr.message);
+          
+          const stream = await downloadContentFromMessage(imageMessage, 'image');
+          let b = Buffer.from([]);
+          for await (const chunk of stream) {
+            b = Buffer.concat([b, chunk]);
+          }
+          buffer = b;
+        }
+
+        const tempDir = path.join(process.cwd(), 'tmp');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        const imgPath = path.join(tempDir, `gpp_${Date.now()}.jpg`);
+        fs.writeFileSync(imgPath, buffer);
+
+        await sock.updateProfilePicture(remoteJid, { url: imgPath });
+        
+        try {
+          fs.unlinkSync(imgPath);
+        } catch (_) {}
+
+        await reply('✅ *Workspace Update:* Group profile picture updated successfully!');
+      } catch (err: any) {
+        console.error('Failed to set group profile picture:', err);
+        await reply(`❌ *System Error:* Failed to process and upload profile image stream: ${err.message || String(err)}`);
+      }
     }
   },
 ];

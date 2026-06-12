@@ -154,7 +154,8 @@ function addLog(message: string) {
 export let socketInstance: WASocket | null = null;
 let isReconnecting = false;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 15;
+const MAX_RECONNECT_ATTEMPTS = 1000;
+let keepAliveTimer: NodeJS.Timeout | null = null;
 
 // Memoize fetched Baileys version to avoid slow network lookups on subsequent connections
 let cachedVersion: [number, number, number] | null = null;
@@ -163,6 +164,27 @@ let cachedIsLatest = false;
 export async function connectToWhatsApp(): Promise<WASocket> {
   // Load any existing session ID from local files if they are already present
   updateSessionId();
+
+  // Clear any existing keep-alive timer
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+
+  // Gracefully end any existing active socket connection to prevent concurrent session key clashes
+  if (socketInstance) {
+    addLog('[SYSTEM] Existing active socket detected. Gracefully ending old session to prevent concurrent connection MAC conflicts.');
+    const oldSock = socketInstance;
+    socketInstance = null;
+    try {
+      oldSock.ev.removeAllListeners('connection.update');
+      oldSock.ev.removeAllListeners('creds.update');
+      oldSock.ev.removeAllListeners('messages.upsert');
+      oldSock.end(undefined);
+    } catch (e) {
+      console.warn('[SYSTEM] Non-blocking warning ending active socket:', e);
+    }
+  }
 
   if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     addLog(`[SYSTEM] Maximum reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Please authenticate via QR or Pair Code.`);
@@ -245,6 +267,7 @@ export async function connectToWhatsApp(): Promise<WASocket> {
   }
 
   const { state, saveCreds } = authStateResult;
+  const isExistingSession = !!state.creds?.me?.id;
 
   // Configure Pino logger as completely silent to minimize overhead and prevent logging bugs
   const logger = pino({
@@ -265,7 +288,13 @@ export async function connectToWhatsApp(): Promise<WASocket> {
     },
     printQRInTerminal: false,
     logger,
-    defaultQueryTimeoutMs: undefined,
+    browser: ['BUGGU MD', 'Chrome', '111.0.0.0'],
+    syncFullHistory: false,
+    shouldSyncHistoryMessage: () => false,
+    markOnlineOnConnect: true,
+    keepAliveIntervalMs: 30000,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
   });
 
   socketInstance = sock;
@@ -306,6 +335,35 @@ export async function connectToWhatsApp(): Promise<WASocket> {
       reconnectAttempts = 0;
       isReconnecting = false;
       addLog(`[CONNECTED] Connection secured! BUGGU MD is online under ${sock.user?.name || 'WhatsApp Client'} (+${sock.user?.id.split(':')[0]})`);
+
+      // Clear any existing keep-alive timer
+      if (keepAliveTimer) {
+        clearInterval(keepAliveTimer);
+        keepAliveTimer = null;
+      }
+
+      // Start active socket keep-alive ping every 1 minute
+      keepAliveTimer = setInterval(async () => {
+        if (socketInstance !== sock || botState.status !== 'connected') {
+          if (keepAliveTimer) {
+            clearInterval(keepAliveTimer);
+            keepAliveTimer = null;
+          }
+          return;
+        }
+
+        try {
+          // Send a safe presence update or query to ensure the WhatsApp transport is fully active
+          await sock.sendPresenceUpdate('available');
+          console.log('[SOCKET KEEP-ALIVE] Active presence ping dispatched successfully.');
+        } catch (pingErr: any) {
+          addLog(`[SOCKET KEEP-ALIVE] Active ping failed (Socket may have died silently): ${pingErr.message || String(pingErr)}`);
+          // Force close and end the socket to trigger natural auto-reconnection
+          try {
+            sock.end(new Error('Silent socket death detected by keep-alive monitor.'));
+          } catch (e) {}
+        }
+      }, 60000); // Check/ping every 60 seconds
 
       // After successful connection, extract state credentials and send the Session ID to the JID and update State
       setTimeout(async () => {
@@ -348,8 +406,25 @@ export async function connectToWhatsApp(): Promise<WASocket> {
               `⚠️ *DO NOT SHARE THIS SESSION ID WITH ANYONE. IT CONTAINS SYSTEM DEPLOYMENT CREDENTIALS.*\n\n` +
               `\`\`\`\n${fullSessionId}\n\`\`\``;
               
-            await sock.sendMessage(cleanJid, { text: msgText });
-            addLog('[SYSTEM] Session ID message successfully sent to your personal WhatsApp!');
+            const alreadySentSessionIdPath = path.join(sessionsDir, 'session_id_sent.txt');
+            const alreadySentSessionId = fs.existsSync(alreadySentSessionIdPath);
+
+            if (isExistingSession || alreadySentSessionId || (process.env.SESSION_ID && process.env.SESSION_ID.trim())) {
+              const welcomeOnlineMsg = `🤖 *BUGGU MD IS ONLINE & RUNNING SUCCESSFULLY* 🤖\n\n` +
+                `✨ *Hello ${sock.user?.name || 'User'}!*\n` +
+                `Your WhatsApp Bot has successfully reconnected and is fully active.\n\n` +
+                `💡 _Type_ \`.menu\` _or_ \`.alive\` _to view the list of commands!_`;
+              await sock.sendMessage(cleanJid, { text: welcomeOnlineMsg });
+              addLog('[SYSTEM] Welcome message sent to your personal WhatsApp!');
+              
+              if (!fs.existsSync(alreadySentSessionIdPath)) {
+                fs.writeFileSync(alreadySentSessionIdPath, 'true', 'utf-8');
+              }
+            } else {
+              await sock.sendMessage(cleanJid, { text: msgText });
+              fs.writeFileSync(alreadySentSessionIdPath, 'true', 'utf-8');
+              addLog('[SYSTEM] Session ID message successfully sent to your personal WhatsApp!');
+            }
           } else {
             addLog('[SYSTEM] Warning: creds.json was not found or was empty/unpopulated during pairing session converted retrieval.');
           }
@@ -362,6 +437,12 @@ export async function connectToWhatsApp(): Promise<WASocket> {
 
     if (connection === 'close') {
       botState.status = 'disconnected';
+
+      // Clear keepalive timer on close
+      if (keepAliveTimer) {
+        clearInterval(keepAliveTimer);
+        keepAliveTimer = null;
+      }
       
       if (socketInstance !== sock) {
         addLog('[SYSTEM] Socket connection closed (socket instance was superseded or manually reset).');
@@ -393,16 +474,40 @@ export async function connectToWhatsApp(): Promise<WASocket> {
         return;
       }
 
+      const isBadMacOrDecryptionError = 
+        lastErrorMsg.includes('Bad MAC') ||
+        lastErrorStack.includes('Bad MAC') ||
+        lastErrorStr.includes('Bad MAC') ||
+        lastErrorMsg.includes('decryption') ||
+        lastErrorStack.includes('decryption') ||
+        lastErrorStr.includes('decryption') ||
+        lastErrorMsg.includes('decrypted') ||
+        lastErrorStack.includes('decrypted') ||
+        lastErrorStr.includes('decrypted') ||
+        reason.includes('Bad MAC') ||
+        reason.includes('decryption') ||
+        reason.includes('decrypted') ||
+        stack.includes('Bad MAC') ||
+        stack.includes('decryption') ||
+        stack.includes('decrypted');
+
+      if (isBadMacOrDecryptionError) {
+        addLog('[SYSTEM] CRITICAL: Session Keys or MAC integrity verification failed (Bad MAC / Decryption Error). Auto-healing by resetting corrupted state...');
+        await resetSessionData();
+        return;
+      }
+
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
       if (shouldReconnect) {
         reconnectAttempts++;
-        addLog(`[AUTO_RECONNECT] Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in 5 seconds...`);
+        const backoffDelay = Math.min(5000 * Math.min(reconnectAttempts, 9), 45000);
+        addLog(`[AUTO_RECONNECT] Connection closed. Scheduled attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${backoffDelay / 1000} seconds...`);
         isReconnecting = true;
         
         setTimeout(() => {
           connectToWhatsApp();
-        }, 5000);
+        }, backoffDelay);
       } else {
         addLog('[AUTH_FAILED] WhatsApp session has expired or been logged out. Resetting session parameters.');
         await resetSessionData();
@@ -448,7 +553,12 @@ export async function connectToWhatsApp(): Promise<WASocket> {
       if (chatUpdate.type !== 'notify') return;
 
       for (const msg of chatUpdate.messages) {
-        if (!msg.message) continue;
+        const remoteJid = msg.key?.remoteJid || '';
+        const isStatus = remoteJid === 'status@broadcast' || remoteJid === 'status.broadcast';
+
+        // Process message if it has a body, or if it is a WhatsApp Status broadcast (which we auto-view/react)
+        if (!msg.message && !isStatus) continue;
+
         await handleMessage(sock, msg);
       }
     } catch (e) {
@@ -466,6 +576,12 @@ export async function resetSessionData(): Promise<void> {
   try {
     const oldSock = socketInstance;
     socketInstance = null;
+
+    // Clear keepalive timer
+    if (keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+    }
     
     if (oldSock) {
       try {

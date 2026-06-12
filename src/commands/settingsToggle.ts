@@ -6,14 +6,10 @@ const configToggles = [
   { key: 'autoread', label: 'Auto-Read Message Mark', global: true },
   { key: 'autoreact', label: 'Auto-React Emoji Feedback', global: true },
   { key: 'autotyping', label: 'Auto-Composing Presence', global: true },
-  { key: 'autorecording', label: 'Auto-Recording Presence', global: true },
-  { key: 'autostatusview', label: 'Auto-Status Viewing Tracker', global: true },
-  { key: 'autostatusreact', label: 'Auto-Status Emoji Reactions', global: true },
   { key: 'welcome', label: 'Welcome Greetings Switch', global: false },
   { key: 'goodbye', label: 'Goodbye Farewells Switch', global: false },
   { key: 'antilink', label: 'Anti-Link Protections', global: false },
   { key: 'antibadword', label: 'Anti-Badword Scan Filters', global: false },
-  { key: 'antidelete', label: 'Message Anti-Deletion Logs', global: false },
 ];
 
 const toggleCommands: Command[] = configToggles.map((toggle) => {

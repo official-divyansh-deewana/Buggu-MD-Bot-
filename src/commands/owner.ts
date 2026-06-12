@@ -1,45 +1,74 @@
 import { Command } from '../types/bot';
 import { config } from '../config/config';
+import { db } from '../lib/database';
 
 export const ownerCommand: Command = {
   name: 'owner',
-  description: 'Displays developer and owner information',
-  category: 'info',
+  description: 'Displays developer and owner contact details',
+  category: 'System',
   aliases: ['creator', 'dev'],
   execute: async ({ sock, remoteJid, msg }) => {
-    const ownerName = '𓆩〭〬🐣⃪⃮⃔⃝꯭꯭〬ꯦ꯭꯭Ꭷɣ֯֯፝֟͠ɛ 𝐁սԍ͢ԍ𝛖';
-    const ownerNumber = config.ownerNumber;
+    const ownerNumber = config.ownerNumber || '917014631313';
+    const ownerName = config.ownerName || 'Divyansh Deewana';
+    const bn = db.data.settings.botname || config.botName || 'BUGGU MD';
 
-    // Send owner contact vcard
-    const vcard = 'BEGIN:VCARD\n'
-                + 'VERSION:3.0\n'
-                + `FN:${ownerName}\n`
-                + 'ORG:BUGGU MD Owner;\n'
-                + `TEL;type=CELL;type=VOICE;waid=${ownerNumber}:+${ownerNumber}\n`
-                + 'END:VCARD';
+    const cleanNumber = ownerNumber.replace(/[^0-9]/g, '');
 
-    // Caption for the owner profile picture
-    const caption = `👑 *BUGGU MD DEVELOPER & OWNER* 👑\n\n`
-                  + `✨ *Name:* ${ownerName}\n`
-                  + `📱 *WhatsApp Number:* +${ownerNumber}\n`
-                  + `👾 *GitHub:* github.com/divyansh-deewana\n`
-                  + `💬 *Tagline:* "Coding isn't just a skill, it's an art."\n\n`
-                  + `🛡️ *BUGGU MD* is developed and maintained by Divyansh Deewana. You can contact them directly on WhatsApp or social handles for upgrades or customizable integrations.`;
+    const vcard = 'BEGIN:VCARD\n' +
+                  'VERSION:3.0\n' +
+                  `FN:${ownerName}\n` +  
+                  `TEL;type=CELL;type=VOICE;waid=${cleanNumber}:${cleanNumber}\n` + 
+                  'END:VCARD';
 
-    // 1. Send owner details card with image first
-    await sock.sendMessage(remoteJid, {
-      image: { url: config.ownerImage || 'https://i.ibb.co/twfrpLDy/x.jpg' },
-      caption: caption
-    }, { quoted: msg as any });
+    try {
+      // 1. Send the active interactive vCard for contacts
+      await sock.sendMessage(remoteJid, {
+        contacts: {
+          displayName: ownerName,
+          contacts: [{ vcard }]
+        }
+      }, { quoted: msg as any });
 
-    // 2. Send the active interactive vCard for quick saving
-    await sock.sendMessage(remoteJid, {
-      contacts: {
-        displayName: ownerName,
-        contacts: [{ vcard }]
-      }
-    }, { quoted: msg as any });
-  },
+      // 2. Send the owner contact message with beautiful image and details
+      const caption = `╭━━〔 *${bn.toUpperCase().replace(/\s+/g, '_')}* 〕━━┈⊷\n` +
+                      `┃◈╭─────────────·๏\n` +
+                      `┃◈┃• *Here is the owner details*\n` +
+                      `┃◈┃• *Name* - ${ownerName}\n` +
+                      `┃◈┃• *Number* +${cleanNumber}\n` +
+                      `┃◈┃• *Version*: 2.0.0 Beta\n` +
+                      `┃◈└───────────┈⊷\n` +
+                      `╰──────────────┈⊷\n` +
+                      `> *© ᴘᴏᴡᴇʀᴇᴅ ʙʏ ʙᴜɢɢᴜ ᴍᴅ ❣️*`;
+
+      await sock.sendMessage(remoteJid, {
+        image: { url: 'https://files.catbox.moe/yj7zp0.png' },
+        caption: caption,
+        contextInfo: {
+          mentionedJid: [`${cleanNumber}@s.whatsapp.net`],
+          forwardingScore: 999,
+          isForwarded: true,
+          forwardedNewsletterMessageInfo: {
+            newsletterJid: '120363348739987203@newsletter',
+            newsletterName: `*${ownerName}*`,
+            serverMessageId: 143
+          }
+        }
+      }, { quoted: msg as any });
+
+      // 3. Send the custom owner audio clip automatically
+      await sock.sendMessage(remoteJid, {
+        audio: { url: 'https://files.catbox.moe/4fz6jh.mp3' },
+        mimetype: 'audio/mp4',
+        ptt: true
+      }, { quoted: msg as any });
+
+    } catch (error: any) {
+      console.error('Owner command error:', error);
+      await sock.sendMessage(remoteJid, {
+        text: `❌ *Error executing Owner command:* ${error.message || String(error)}`
+      }, { quoted: msg as any });
+    }
+  }
 };
 
 export default ownerCommand;

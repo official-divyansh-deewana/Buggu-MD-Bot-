@@ -4,137 +4,376 @@ import { config } from '../config/config';
 
 export const menuCommand: Command = {
   name: 'menu',
-  description: 'Displays the complete and stylish commands menu',
+  description: 'Displays the complete and stylish interactive menu system',
   category: 'System',
   aliases: ['m', 'allmenu', 'commands'],
-  execute: async ({ sock, remoteJid, msg, senderName }) => {
-    const p = db.data.settings.prefix;
-    const bn = db.data.settings.botname;
+  execute: async ({ sock, remoteJid, msg, sender }) => {
+    const p = db.data.settings.prefix || config.prefix || '.';
+    const bn = db.data.settings.botname || config.botName || 'BUGGU MD';
+    const ownerName = config.ownerName || 'Divyansh Deewana';
 
-    const greeting = `👋 *Hey, ${senderName}!* Welcome to *${bn}*!
+    const menuCaption = `╭━━━〔 *${bn.toUpperCase()}* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 👑 *Owner :* ${ownerName}
+┃★│ ⚙️ *Prefix :* \` ${p} \`
+┃★│ 🛡️ *System :* Operational
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+📋 *ᴄʜᴏᴏsᴇ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ᴛᴏ ᴇxᴘʟᴏʀᴇ:*
+> _ʀᴇᴘʟʏ ᴡɪᴛʜ ᴛʜᴇ ᴍᴀᴛᴄʜɪɴɢ ɴᴜᴍʙᴇʀ ᴛᴏ ᴏᴘᴇɴ ᴛʜᴇ ᴍᴇɴᴜ_
 
-🤖 *SYSTEM METADATA*
-┌─ 🚀 *Bot Label:* ${bn}
-├─ 💻 *Developer:* Divyansh Deewana
-├─ ⚙️ *Command Prefix:* \` ${p} \`
-├─ 👑 *Premium Registry:* Active
-└─ 🛡️ *System State:* Operational
+ ➦✧ -〘 *ʙᴏᴛ ᴍᴇɴᴜ* 〙 -  ✧━┈⊷
+┃✧ ➦♦⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
+┃✧│  ❶  *ᴅᴏᴡɴʟᴏᴅᴇᴅ ᴍᴇɴᴜ*
+┃✧│  ❷ *ɢʀᴏᴜᴘ ᴍᴇɴᴜ*
+┃✧│  ❸ *ғᴜɴ ᴍᴇɴᴜ*
+┃✧│  ❹  *ᴏᴡɴᴇʀ ᴍᴇɴᴜ*
+┃✧│  ❺  *ᴀɪ ᴍᴇɴᴜ*
+┃✧│  ❻  *ᴀɴɪᴍᴇ ᴍᴇɴᴜ*
+┃✧│  ❼  *ᴄᴏɴᴠᴇʀᴛ ᴍᴇɴᴜ*
+┃✧│  ❽  *ᴏᴛʜᴇʀ ᴍᴇɴᴜ*
+┃✧│  ❾  *ʀᴇᴀᴄʏ ᴍᴇɴᴜ*
+┃✧│  ❿  *ᴍᴀɪɴ ᴍᴇɴᴜ*
+┃✧ ➥ ⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
+ ➥⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`;
 
-━━━━━━━━━━━━━━━━━━━━━
-🌟 *BUGGU MD FULL MENU* 🌟
-━━━━━━━━━━━━━━━━━━━━━
+    const contextInfo = {
+      mentionedJid: [sender],
+      forwardingScore: 999,
+      isForwarded: true,
+      forwardedNewsletterMessageInfo: {
+        newsletterJid: '120363348739987203@newsletter',
+        newsletterName: ownerName,
+        serverMessageId: 143
+      }
+    };
 
-*🧠 AI POWERED COMMANDS:*
-👉 \`${p}ai <prompt>\` - Run Gemini chat assistant
-👉 \`${p}image <prompt>\` - Render premium AI imagery
-👉 \`${p}code <prompt>\` - Solve compilation queries
-👉 \`${p}translate <text>\` - Perform translations
-👉 \`${p}summarize <text>\` - Condense texts
+    let sentMsg: any = null;
 
-*👥 GROUP ADMINISTRATION:*
-👉 \`${p}tagall\` - Mention all members
-👉 \`${p}hidetag <text>\` - Hidden broadcast
-👉 \`${p}group open/close\` - Lock/unlock chat room
-👉 \`${p}mute / unmute\` - Turn group chat flow on/off
-👉 \`${p}promote @user\` - Grant Admin rights
-👉 \`${p}demote @user\` - Revoke Admin rights
-👉 \`${p}kick @user\` - Remove member from group
-👉 \`${p}add <number>\` - Invite member directly
-👉 \`${p}warn @user\` - Issue warnings (Auto kick at 3)
-👉 \`${p}unwarn @user\` - Reset warning logs
-👉 \`${p}warnings @user\` - Check active warnings
-👉 \`${p}invitelink\` - Retrieve group invite URL
+    try {
+      // 1. Send the beautifully designed Menu Image
+      sentMsg = await sock.sendMessage(
+        remoteJid,
+        {
+          image: { url: config.botImage || 'https://files.catbox.moe/yj7zp0.png' },
+          caption: menuCaption,
+          contextInfo: contextInfo
+        },
+        { quoted: msg as any }
+      );
 
-*🔌 CONTROL & DIAGNOSTICS:*
-👉 \`${p}menu\` - Display current menu screen
-👉 \`${p}status\` - Display platform resource diagnostics
-👉 \`${p}ping\` - Inspect connection latency
-👉 \`${p}alive\` - Confirm online socket status
-👉 \`${p}runtime\` - Fetch total bot runtime sessions
-👉 \`${p}version\` - View active codebase version
-👉 \`${p}about\` - Read development architectures
-👉 \`${p}credits\` - Appreciations & Dev acknowledgments
-👉 \`${p}owner\` - Retrieve developer vCard
+      // 2. Play the beautiful audio file shortly after
+      try {
+        setTimeout(async () => {
+          await sock.sendMessage(remoteJid, {
+            audio: { url: 'https://files.catbox.moe/wzodz1.mp3' },
+            mimetype: 'audio/mp4',
+            ptt: true,
+          }, { quoted: msg as any });
+        }, 1200);
+      } catch (audioErr) {
+        console.warn('Failed to stream menu audio track:', audioErr);
+      }
 
-*⚙️ SETTINGS TOGGLES (on/off):*
-👉 \`${p}alwaysonline on/off\` - Force online indicators
-👉 \`${p}autoread on/off\` - Mark messages as read
-👉 \`${p}autoreact on/off\` - Feedbacks with random emojis
-👉 \`${p}autotyping on/off\` - Trigger composing state
-👉 \`${p}autorecording on/off\` - Trigger recording state
-👉 \`${p}autostatusview on/off\` - Read story status updates
-👉 \`${p}autostatusreact on/off\` - Emoji reactions to stories
-👉 \`${p}welcome on/off\` - Group participation welcomes
-👉 \`${p}goodbye on/off\` - Group participation departures
-👉 \`${p}antilink on/off\` - Intercept and delete link shares
-👉 \`${p}antibadword on/off\` - Filter bad word obscenities
-👉 \`${p}antidelete on/off\` - Track deleted messages logs
+    } catch (err) {
+      console.error('Failed to send main menu:', err);
+      // Fallback to text message
+      sentMsg = await sock.sendMessage(
+        remoteJid,
+        { text: menuCaption, contextInfo: contextInfo },
+        { quoted: msg as any }
+      );
+    }
 
-*📥 INTERNET DOWNLOADERS:*
-👉 \`${p}instagram <url>\` - Extract IG Reels & Photos
-👉 \`${p}fb <url>\` - Extract Facebook video feeds
-👉 \`${p}tiktok <url>\` - Grab TikTok (No Watermark)
-👉 \`${p}twitter <url>\` - Save Twitter/X video clips
-👉 \`${p}play <query>\` - Audios/Music searches
-👉 \`${p}song <query>\` - Transcode audio downloads
-👉 \`${p}video <query>\` - Transcode video downloads
-👉 \`${p}pinterest <query>\` - Pinterest photo search
-👉 \`${p}mediafire <url>\` - Fetch MediaFire folders
+    if (!sentMsg?.key?.id) return;
+    const messageID = sentMsg.key.id;
 
-*💿 COMPILERS & CONVERTERS:*
-👉 \`${p}readmore <text1 | text2>\` - Insert spacer breaks
-👉 \`${p}qr <text>\` - Render real barcodes on the fly
-👉 \`${p}sticker\` - Compile picture to stickers
-👉 \`${p}take <name>\` - Customize sticker pack titles
-👉 \`${p}tovoice\` - Transcode media files to voice notes
-👉 \`${p}tomp3\` - Convert video files to MP3 files
-👉 \`${p}tomp4\` - Render animations back to MP4
-👉 \`${p}removebg\` - Remove photo backdrop panels
+    // Beautiful categorised submenus populated perfectly matching our codebase
+    const menuData: Record<string, { title: string; content: string }> = {
+      '1': {
+        title: "📥 *Download Menu* 📥",
+        content: `╭━━━〔 *Download Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🌐 *Social Media*
+┃★│ • facebook [url] (or fb)
+┃★│ • instagram [url] (or ig)
+┃★│ • tiktok [url] (or tt)
+┃★│ • twitter [url] (or x)
+┃★│ • pinterest [query] (or pin)
+┃★│ • mediafire [url]
+┃★│ • apk [app]
+┃★│ • spotify [query]
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🎵 *Music/Video*
+┃★│ • play [query]
+┃★│ • song [query]
+┃★│ • video [query]
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '2': {
+        title: "👥 *Group Menu* 👥",
+        content: `╭━━━〔 *Group Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🛠️ *Management*
+┃★│ • grouplink (or invitelink)
+┃★│ • group open / close
+┃★│ • promote @user
+┃★│ • demote @user
+┃★│ • kick @user
+┃★│ • add <number>
+┃★│ • mute / unmute
+┃★╰──────────────
+┃★╭──────────────
+┃★│ ⚡ *Warnings & Config*
+┃★│ • warn @user
+┃★│ • unwarn @user
+┃★│ • warnings @user
+┃★│ • setgname <text>
+┃★│ • setgdesc <text>
+┃★│ • setgpp [quoted img]
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🏷️ *Tagging*
+┃★│ • tagall
+┃★│ • tagadmins
+┃★│ • hidetag [text]
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '3': {
+        title: "😄 *Fun Menu* 😄",
+        content: `╭━━━〔 *Fun Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🎭 *Interactive*
+┃★│ • flirt (or pickup)
+┃★│ • joke
+┃★│ • fact
+┃★│ • quote
+┃★│ • roast @user
+┃★│ • hack @user
+┃★│ • ship @A @B
+┃★│ • rate <text>
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '4': {
+        title: "👑 *Owner Menu* 👑",
+        content: `╭━━━〔 *Owner Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ ⚠️ *Restricted*
+┃★│ • block @user
+┃★│ • unblock @user
+┃★│ • restart
+┃★│ • shutdown
+┃★│ • broadcast <text>
+┃★│ • leavegc
+┃★│ • join <url>
+┃★╰──────────────
+┃★╭──────────────
+┃★│ ℹ️ *Info Tools*
+┃★│ • setbotname <text>
+┃★│ • setprefix <char>
+┃★│ • addpremium @user
+┃★│ • delpremium @user
+┃★│ • listpremium (or premiumlist)
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '5': {
+        title: "🤖 *AI Menu* 🤖",
+        content: `╭━━━〔 *AI Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 💬 *Chat & Gen*
+┃★│ • ai [prompt] (or Gemini)
+┃★│ • llama3 [prompt] (or llama)
+┃★│ • code [prompt]
+┃★│ • translate <text>
+┃★│ • summarize <text>
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🖼️ *Media AI*
+┃★│ • image [prompt]
+┃★│ • sora [video prompt] (or t2v)
+┃★│ • remini [quoted image] (or enhance)
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '6': {
+        title: "🎎 *Anime Menu* 🎎",
+        content: `╭━━━〔 *Anime Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🎎 *Anime Gallery*
+┃★│ • animegirl (Coming soon)
+┃★│ • waifu (Coming soon)
+┃★│ • neko (Coming soon)
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '7': {
+        title: "🔄 *Convert Menu* 🔄",
+        content: `╭━━━〔 *Convert Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🖼️ *Media*
+┃★│ • sticker (quoted image)
+┃★│ • take <pack name>
+┃★│ • tovoice (quoted audio/video)
+┃★│ • tomp3 (quoted video)
+┃★│ • tomp4 (quoted animated sticker)
+┃★│ • qr [text]
+┃★│ • removebg (quoted image)
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '8': {
+        title: "📌 *Other Menu* 📌",
+        content: `╭━━━〔 *Other Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🕒 *Utilities*
+┃★│ • weather <city>
+┃★│ • time
+┃★│ • calc <expr>
+┃★│ • shorturl <link>
+┃★│ • length <string>
+┃★│ • countryinfo <country> (or cinfo)
+┃★│ • viewonce [quoted view-once message]
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '9': {
+        title: "💞 *Reactions Menu* 💞",
+        content: `╭━━━〔 *Reactions Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ ❤️ *Expressions*
+┃★│ • cuddle @user
+┃★│ • hug @user
+┃★│ • kiss @user
+┃★│ • lick @user
+┃★│ • pat @user
+┃★│ • blush
+┃★│ • smile
+┃★│ • happy
+┃★│ • wink
+┃★│ • poke
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 😂 *Action & Play*
+┃★│ • bully @user
+┃★│ • bonk @user
+┃★│ • yeet @user
+┃★│ • slap @user
+┃★│ • kill @user
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      },
+      '10': {
+        title: "🏠 *Main Menu* 🏠",
+        content: `╭━━━〔 *Main Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ ℹ️ *Bot Info*
+┃★│ • ping
+┃★│ • alive
+┃★│ • runtime
+┃★│ • version
+┃★│ • about
+┃★│ • credits
+┃★│ • owner (or creator)
+┃★│ • status
+┃★╰──────────────
+┃★╭──────────────
+┃★│ ⚙️ *Settings*
+┃★│ • alwaysonline on/off
+┃★│ • autoread on/off
+┃★│ • autoreact on/off
+┃★│ • auttyping on/off
+┃★│ • autorecording on/off
+┃★│ • autostatusview on/off
+┃★│ • autostatusreact on/off
+┃★│ • welcome on/off
+┃★│ • goodbye on/off
+┃★│ • antilink on/off
+┃★│ • antibadword on/off
+┃★│ • antidelete on/off
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+> © ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${bn.toUpperCase()}`
+      }
+    };
 
-*👑 PREMIUM SUBSCRIBERS:*
-👉 \`${p}addpremium @user\` - Opt user in (Owner only)
-👉 \`${p}delpremium @user\` - Revoke privileges (Owner only)
-👉 \`${p}checkpremium\` - Inspect subscription tier state
-👉 \`${p}premiumlist\` - List all registered VIP user IDs
+    // Self-contained message replier with improved error handling
+    const handler = async (msgData: any) => {
+      try {
+        const receivedMsg = msgData.messages?.[0];
+        if (!receivedMsg?.message) return;
 
-*🎭 ENTERTAINMENT & FUN:*
-👉 \`${p}truth\` / \`${p}dare\` - Play truth-or-dare
-👉 \`${p}joke\` - Tell geek coder jokes
-👉 \`${p}quote\` - Read philosophy reminders
-👉 \`${p}fact\` - Read extraordinary brain trivia
-👉 \`${p}pickup\` - Flirty lines
-👉 \`${p}roast @user\` - Playful roasts
-👉 \`${p}hack\` - Simulate terminal break-ins
-👉 \`${p}ship @A @B\` - Check custom chemistry match
-👉 \`${p}rate <text>\` - Random rating index score
+        // Verify if it is a reply referencing our menu message ID
+        const stanzaId = receivedMsg.message.extendedTextMessage?.contextInfo?.stanzaId;
+        if (stanzaId !== messageID) return;
 
-*🔧 SYSTEM UTILITIES:*
-👉 \`${p}weather <city>\` - Read meteorology metrics
-👉 \`${p}time\` - Read exact world clocks
-👉 \`${p}calc <formula>\` - Solve equations
-👉 \`${p}shorturl <url>\` - Shorten links
-👉 \`${p}length <string>\` - Count character lengths
-👉 \`${p}speedtest\` - Output execution performance index
-👉 \`${p}ip <address>\` - Geolocate DNS registries
+        const bodyText = (
+          receivedMsg.message.conversation ||
+          receivedMsg.message.extendedTextMessage?.text ||
+          ''
+        ).trim();
 
-*👑 OWNER SYSTEM CONTROLS (Owner only):*
-👉 \`${p}restart\` - Reboot node process threads
-👉 \`${p}shutdown\` - Safely terminate socket
-👉 \`${p}broadcast <msg>\` - Bulletin post to all groups
-👉 \`${p}block @user\` - Add node block restrictions
-👉 \`${p}unblock @user\` - Remove blockage limits
-👉 \`${p}leavegc\` - Disconnect bot from active group
-👉 \`${p}join <url>\` - Accept group URL invitations
-👉 \`${p}setbotname <name>\` - Re-identify bot title
-👉 \`${p}setprefix <char>\` - Set trigger characters
+        if (menuData[bodyText]) {
+          const selectedMenu = menuData[bodyText];
+          
+          try {
+            await sock.sendMessage(
+              remoteJid,
+              {
+                image: { url: 'https://files.catbox.moe/yj7zp0.png' },
+                caption: selectedMenu.content,
+                contextInfo: contextInfo
+              },
+              { quoted: receivedMsg }
+            );
 
-━━━━━━━━━━━━━━━━━━━━━
-💻 *BUGGU MD — Created by Divyansh Deewana*`;
+            await sock.sendMessage(remoteJid, {
+              react: { text: '✅', key: receivedMsg.key }
+            });
+          } catch (err) {
+            console.error('Failed to send sub-menu images, trying fallback:', err);
+            await sock.sendMessage(
+              remoteJid,
+              { text: selectedMenu.content, contextInfo: contextInfo },
+              { quoted: receivedMsg }
+            );
+          }
+        } else if (/^[1-9]$|^10$/.test(bodyText)) {
+          // Fallback if option input is invalid
+          await sock.sendMessage(
+            remoteJid,
+            { text: `❌ *Invalid Option:* "${bodyText}" is not listed in categories. Reply 1 to 10 only.` },
+            { quoted: receivedMsg }
+          );
+        }
+      } catch (e) {
+        console.error('Menu listener error:', e);
+      }
+    };
 
-    await sock.sendMessage(remoteJid, {
-      image: { url: config.botImage || 'https://i.ibb.co/tT1Z8nV6/x.jpg' },
-      caption: greeting
-    }, { quoted: msg as any });
+    // Register live event updater
+    sock.ev.on('messages.upsert', handler);
+
+    // Clean up memory buffer / event logs after 5 minutes
+    setTimeout(() => {
+      try {
+        sock.ev.off('messages.upsert', handler);
+      } catch (_) {}
+    }, 300000);
   },
 };
 

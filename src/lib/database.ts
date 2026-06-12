@@ -27,6 +27,7 @@ export interface GlobalSettings {
   autorecording: boolean;
   autostatusview: boolean;
   autostatusreact: boolean;
+  antidelete: boolean;
   prefix: string;
   botname: string;
 }
@@ -52,6 +53,7 @@ const defaultDb: DatabaseSchema = {
     autorecording: false,
     autostatusview: false,
     autostatusreact: false,
+    antidelete: false,
     prefix: config.prefix,
     botname: config.botName,
   },

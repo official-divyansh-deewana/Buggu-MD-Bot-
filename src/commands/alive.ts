@@ -17,7 +17,7 @@ export const aliveCommand: Command = {
 _"Everything is working perfectly. Type *${config.prefix}menu* to see what I can do for you!"_`;
     
     await sock.sendMessage(remoteJid, {
-      image: { url: config.botImage || 'https://i.ibb.co/tT1Z8nV6/x.jpg' },
+      image: { url: config.botImage || 'https://files.catbox.moe/yj7zp0.png' },
       caption: text
     }, { quoted: msg as any });
   },
