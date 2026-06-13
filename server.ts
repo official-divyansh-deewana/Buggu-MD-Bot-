@@ -96,6 +96,22 @@ function makeBrandedMessage(title: string, content: string): string {
 
 // Start WhatsApp socket logic
 async function connectToWhatsApp() {
+  // Prevent socket/file descriptor leaks by terminating previous socket instance
+  if (sock) {
+    try {
+      addLog("Cleaning up existing active socket connection to avoid file descriptor leaks...");
+      sock.ev.removeAllListeners('connection.update');
+      sock.ev.removeAllListeners('creds.update');
+      sock.ev.removeAllListeners('messages.upsert');
+      sock.ev.removeAllListeners('messages.update');
+      sock.ev.removeAllListeners('call');
+      sock.end(undefined);
+    } catch (e) {
+      addLog(`Error cleaning up previous socket: ${e}`);
+    }
+    sock = null;
+  }
+
   const { state, saveCreds } = await useMultiFileAuthState(path.join(process.cwd(), 'sessions/buggu-session'));
   
   addLog("Initializing Baileys core connection system...");
@@ -146,6 +162,30 @@ async function connectToWhatsApp() {
       botState.qr = '';
       botState.pairingCode = '';
       addLog(`✨ WhatsApp Device online! Logged in as: ${sock.user.id}`);
+
+      // Send dynamic connection confirmation notification message directly to WhatsApp device owner
+      const myJid = jidNormalizedUser(sock.user.id);
+      try {
+        sock.sendMessage(myJid, {
+          text: makeBrandedMessage(
+            "Connection Success",
+            "🐣 *BUGGU MD IS NOW ONLINE!* 🐣\n\n" +
+            "Your WhatsApp account has been coupled successfully with BUGGU MD Control Room dashboard. Presence keep-alive is active, and status reactor features are now fully functional!\n\n" +
+            "🔮 *Active Features:*\n" +
+            "• Always status seen (autoview)\n" +
+            "• Always status react 😍\n" +
+            "• Direct message react ❤️\n" +
+            "• Anti-delete filter\n" +
+            "• Anti-call shield"
+          )
+        }).then(() => {
+          addLog(`Sent connection notification message to connected JID: ${myJid}`);
+        }).catch((err: any) => {
+          addLog(`Failed to dispatch connection success message payload: ${err}`);
+        });
+      } catch (sendErr) {
+        addLog(`Failed to dispatch connection success message: ${sendErr}`);
+      }
 
       // Start presence check keep-alive so WhatsApp session never sleeps
       if (keepAliveInterval) clearInterval(keepAliveInterval);
@@ -1035,6 +1075,53 @@ app.post('/api/pair-code', async (req, res) => {
   } catch (err: any) {
     addLog(`Pairing code system fault: ${err.message}`);
     return res.status(500).json({ error: `Could not fetch pairing code from WhatsApp: ${err.message}. If the session files are stale, please wait 15 seconds or check console logging stream.` });
+  }
+});
+
+app.post('/api/logout', async (req, res) => {
+  try {
+    addLog("Requesting complete session logout & purge...");
+    
+    // Clear state
+    botState.qr = '';
+    botState.pairingCode = '';
+    botState.status = 'disconnected';
+
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
+
+    if (sock) {
+      try {
+        addLog("Deactivating active Baileys socket connection...");
+        sock.ev.removeAllListeners('connection.update');
+        sock.ev.removeAllListeners('creds.update');
+        sock.ev.removeAllListeners('messages.upsert');
+        sock.ev.removeAllListeners('messages.update');
+        sock.ev.removeAllListeners('call');
+        sock.end(undefined);
+      } catch (err: any) {
+        addLog(`Error ending active socket: ${err.message}`);
+      }
+      sock = null;
+    }
+
+    // Fully purge the session filesystem directory to avoid credentials overlap/corruption
+    const sessionPath = path.join(process.cwd(), 'sessions/buggu-session');
+    if (fs.existsSync(sessionPath)) {
+      addLog(`Purging old session folder: ${sessionPath}`);
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+    }
+
+    // Reboot clean connection
+    addLog("Re-initializing clean connection system...");
+    await connectToWhatsApp();
+
+    return res.json({ success: true, message: "Logged out successfully and session purged." });
+  } catch (error: any) {
+    addLog(`Logout system fault: ${error.message}`);
+    return res.status(500).json({ error: `Could not purge current session completely: ${error.message}` });
   }
 });
 

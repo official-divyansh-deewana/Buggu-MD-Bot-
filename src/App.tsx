@@ -180,6 +180,29 @@ export default function App() {
     }
   };
 
+  const handleLogout = async () => {
+    if (!window.confirm("Are you sure you want to reset the session and log out? This will completely wipe all authentication details on the server to start fresh.")) {
+      return;
+    }
+    setIsUpdating(true);
+    setPairingError('');
+    try {
+      const response = await fetch('/api/logout', {
+        method: 'POST'
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to logout session.');
+      }
+      alert('Session reset successfully. A clean QR/Pairing pipeline has been re-armed!');
+      setServerPairingCode('');
+    } catch (err: any) {
+      setPairingError(err.message || 'Could not trigger logout endpoint.');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const filteredCommands = COMMANDS.filter(cmd => 
     cmd.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     cmd.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -330,8 +353,15 @@ export default function App() {
                 <CheckCircle className="h-12 w-12 text-emerald-400 mx-auto animate-bounce" />
                 <div>
                   <h4 className="text-emerald-400 font-bold">Successfully Connected</h4>
-                  <p className="text-xs text-gray-400 mt-1">BUGGU MD is dynamically synchronized with your phone device. Keep-alive system is fully armed!</p>
+                  <p className="text-xs text-gray-400 mt-1 mb-2">BUGGU MD is dynamically synchronized with your phone device. Keep-alive system is fully armed!</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white font-extrabold text-[10px] py-1.5 rounded uppercase tracking-wider transition-colors"
+                >
+                  Disconnect & Logout
+                </button>
               </div>
             ) : pairingMethod === 'qr' ? (
               // QR CODE VIEW
@@ -428,6 +458,19 @@ export default function App() {
                     </button>
                   </form>
                 )}
+              </div>
+            )}
+            
+            {status !== 'connected' && (
+              <div className="pt-2 border-t border-gray-800/80">
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full bg-red-950/20 hover:bg-red-950/40 text-red-400 hover:text-red-300 border border-red-900/20 font-bold text-[10px] uppercase tracking-wider py-2 rounded-lg transition-all flex items-center justify-center space-x-1 px-3"
+                >
+                  <RefreshCw className="h-3.0 w-3.0" />
+                  <span>Reset Session & Clean Cache</span>
+                </button>
               </div>
             )}
           </div>
