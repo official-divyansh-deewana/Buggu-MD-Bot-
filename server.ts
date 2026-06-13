@@ -83,6 +83,7 @@ function addLog(msg: string) {
 
 // Global WhatsApp dynamic socket connection reference
 let sock: any = null;
+const activeMenuMessages = new Set<string>();
 let keepAliveInterval: any = null;
 let lastActiveConnectedTimestamp = Date.now();
 
@@ -199,6 +200,40 @@ async function connectToWhatsApp(phoneToPair?: string) {
 
   // Securely lock listeners to only the current created socket instance to avoid stale connection loops
   const currentSock = sock;
+
+  // Wrap sock.sendMessage to automatically append premium metadata, externalAdReply and channel attributes
+  const originalSendMessage = sock.sendMessage.bind(sock);
+  sock.sendMessage = async (toJid: string, content: any, options: any = {}) => {
+    if (content && typeof content === 'object') {
+      const isDelete = !!content.delete;
+      const isReaction = !!content.react;
+      const isUpdate = !!content.edit;
+      
+      if (!isDelete && !isReaction && !isUpdate) {
+        const contextInfo = content.contextInfo || {};
+        
+        contextInfo.isForwarded = true;
+        contextInfo.forwardingScore = 999;
+        contextInfo.forwardedNewsletterMessageInfo = {
+          newsletterJid: "12036329432145@newsletter", // Root BUGGU MD Channel JID
+          newsletterName: "BUGGU MD Official 🐣",
+          serverMessageId: 1
+        };
+        
+        contextInfo.externalAdReply = {
+          title: "🐣 BUGGU MD 🐣",
+          body: "Premium Multi-Device WhatsApp Bot",
+          thumbnailUrl: "https://iili.io/CCMvy1n.jpg",
+          mediaType: 1,
+          renderLargerThumbnail: true,
+          sourceUrl: "https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h"
+        };
+        
+        content.contextInfo = contextInfo;
+      }
+    }
+    return originalSendMessage(toJid, content, options);
+  };
 
   sock.ev.on('creds.update', () => {
     if (sock !== currentSock) return;
@@ -370,7 +405,28 @@ async function connectToWhatsApp(phoneToPair?: string) {
       messageStore[msg.key.id || ""] = JSON.parse(JSON.stringify(msg));
     }
 
-    const messageType = Object.keys(msg.message)[0];
+    // Un-wrap if it's ephemeral, viewOnce, edited, etc. to ensure commands are executed perfectly
+    let messageContent = msg.message;
+    if (messageContent) {
+      if (messageContent.ephemeralMessage) {
+        messageContent = messageContent.ephemeralMessage.message;
+      }
+      if (messageContent.viewOnceMessage) {
+        messageContent = messageContent.viewOnceMessage.message;
+      }
+      if (messageContent.viewOnceMessageV2) {
+        messageContent = messageContent.viewOnceMessageV2.message;
+      }
+      if (messageContent.documentWithCaptionMessage) {
+        messageContent = messageContent.documentWithCaptionMessage.message;
+      }
+      if (messageContent.editedMessage) {
+        messageContent = messageContent.editedMessage.message || messageContent.editedMessage;
+      }
+    }
+    if (!messageContent) return;
+
+    const messageType = Object.keys(messageContent)[0];
     
     // Auto status view & status reactor (Always status seen and react is always on)
     if (jid === 'status@broadcast') {
@@ -403,16 +459,345 @@ async function connectToWhatsApp(phoneToPair?: string) {
     // Extract text content of message
     let body = "";
     if (messageType === 'conversation') {
-      body = msg.message.conversation;
+      body = messageContent.conversation;
     } else if (messageType === 'extendedTextMessage') {
-      body = msg.message.extendedTextMessage.text;
+      body = messageContent.extendedTextMessage.text;
     } else if (messageType === 'imageMessage') {
-      body = msg.message.imageMessage.caption;
+      body = messageContent.imageMessage.caption;
     } else if (messageType === 'videoMessage') {
-      body = msg.message.videoMessage.caption;
+      body = messageContent.videoMessage.caption;
+    } else if (messageType === 'documentMessage') {
+      body = messageContent.documentMessage.caption;
     }
 
     if (!body) return;
+
+    // Check if message is a reply to one of our active menu messages
+    const contextStanzaId = messageContent?.extendedTextMessage?.contextInfo?.stanzaId;
+    if (contextStanzaId && activeMenuMessages.has(contextStanzaId)) {
+      const optionNum = body.trim();
+      const menuData: Record<string, { title: string, content: string }> = {
+        '1': {
+          title: "Download Menu",
+          content: `╭━━━〔 *Download Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🌐 *Social Media*
+┃★│ • facebook [url]
+┃★│ • mediafire [url]
+┃★│ • tiktok [url]
+┃★│ • twitter [url]
+┃★│ • Insta [url]
+┃★│ • apk [app]
+┃★│ • img [query]
+┃★│ • tt2 [url]
+┃★│ • pins [url]
+┃★│ • apk2 [app]
+┃★│ • fb2 [url]
+┃★│ • pinterest [url]
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🎵 *Music/Video*
+┃★│ • spotify [query]
+┃★│ • play [song]
+┃★│ • play2-10 [song]
+┃★│ • audio [url]
+┃★│ • video [url]
+┃★│ • video2-10 [url]
+┃★│ • ytmp3 [url]
+┃★│ • ytmp4 [url]
+┃★│ • song [name]
+┃★│ • darama [name]
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '2': {
+          title: "Group Menu",
+          content: `╭━━━〔 *Group Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🛠️ *Management*
+┃★│ • grouplink
+┃★│ • kickall
+┃★│ • kickall2
+┃★│ • kickall3
+┃★│ • add @user
+┃★│ • remove @user
+┃★│ • kick @user
+┃★╰──────────────
+┃★╭──────────────
+┃★│ ⚡ *Admin Tools*
+┃★│ • promote @user
+┃★│ • demote @user
+┃★│ • dismiss 
+┃★│ • revoke
+┃★│ • mute [time]
+┃★│ • unmute
+┃★│ • lockgc
+┃★│ • unlockgc
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🏷️ *Tagging*
+┃★│ • tag @user
+┃★│ • hidetag [msg]
+┃★│ • tagall
+┃★│ • tagadmins
+┃★│ • invite
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '3': {
+          title: "Fun Menu",
+          content: `╭━━━〔 *Fun Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🎭 *Interactive*
+┃★│ • shapar
+┃★│ • rate @user
+┃★│ • insult @user
+┃★│ • hack @user
+┃★│ • ship @user1 @user2
+┃★│ • character
+┃★│ • pickup
+┃★│ • joke
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 😂 *Reactions*
+┃★│ • hrt
+┃★│ • hpy
+┃★│ • syd
+┃★│ • anger
+┃★│ • shy
+┃★│ • kiss
+┃★│ • mon
+┃★│ • cunfuzed
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '4': {
+          title: "Owner Menu",
+          content: `╭━━━〔 *Owner Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ ⚠️ *Restricted*
+┃★│ • block @user
+┃★│ • unblock @user
+┃★│ • fullpp [img]
+┃★│ • setpp [img]
+┃★│ • restart
+┃★│ • shutdown
+┃★│ • updatecmd
+┃★╰──────────────
+┃★╭──────────────
+┃★│ ℹ️ *Info Tools*
+┃★│ • gjid
+┃★│ • jid @user
+┃★│ • listcmd
+┃★│ • allmenu
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '5': {
+          title: "AI Menu",
+          content: `╭━━━〔 *AI Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 💬 *Chat AI*
+┃★│ • ai [query]
+┃★│ • gpt3 [query]
+┃★│ • gpt2 [query]
+┃★│ • gptmini [query]
+┃★│ • gpt [query]
+┃★│ • meta [query]
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🖼️ *Image AI*
+┃★│ • imagine [text]
+┃★│ • imagine2 [text]
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🔍 *Specialized*
+┃★│ • blackbox [query]
+┃★│ • luma [query]
+┃★│ • dj [query]
+┃★│ • khan [query]
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '6': {
+          title: "Anime Menu",
+          content: `╭━━━〔 *Anime Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🖼️ *Images*
+┃★│ • fack
+┃★│ • dog
+┃★│ • awoo
+┃★│ • garl
+┃★│ • waifu
+┃★│ • neko
+┃★│ • megnumin
+┃★│ • maid
+┃★│ • loli
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🎭 *Characters*
+┃★│ • animegirl
+┃★│ • animegirl1-5
+┃★│ • anime1-5
+┃★│ • foxgirl
+┃★│ • naruto
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '7': {
+          title: "Convert Menu",
+          content: `╭━━━〔 *Convert Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🖼️ *Media*
+┃★│ • sticker [img]
+┃★│ • sticker2 [img]
+┃★│ • emojimix
+┃★│ • take [name,text]
+┃★│ • tomp3 [video]
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 📝 *Text*
+┃★│ • fancy [text]
+┃★│ • tts [text]
+┃★│ • trt [text]
+┃★│ • base64 [text]
+┃★│ • unbase64 [text]
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '8': {
+          title: "Other Menu",
+          content: `╭━━━〔 *Other Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 🕒 *Utilities*
+┃★│ • timenow
+┃★│ • date
+┃★│ • count [num]
+┃★│ • calculate [expr]
+┃★│ • countx
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🎲 *Random*
+┃★│ • flip
+┃★│ • coinflip
+┃★│ • rcolor
+┃★│ • roll
+┃★│ • fact
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🔍 *Search*
+┃★│ • define [word]
+┃★│ • news [query]
+┃★│ • movie [name]
+┃★│ • weather [loc]
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '9': {
+          title: "Reactions Menu",
+          content: `╭━━━〔 *Reactions Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ ❤️ *Affection*
+┃★│ • cuddle @user
+┃★│ • hug @user
+┃★│ • kiss @user
+┃★│ • lick @user
+┃★│ • pat @user
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 😂 *Funny*
+┃★│ • bully @user
+┃★│ • bonk @user
+┃★│ • yeet @user
+┃★│ • slap @user
+┃★│ • kill @user
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 😊 *Expressions*
+┃★│ • blush @user
+┃★│ • smile @user
+┃★│ • happy @user
+┃★│ • wink @user
+┃★│ • poke @user
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        },
+        '10': {
+          title: "Main Menu",
+          content: `╭━━━〔 *Main Menu* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ ℹ️ *Bot Info*
+┃★│ • ping
+┃★│ • live
+┃★│ • alive
+┃★│ • runtime
+┃★│ • uptime
+┃★│ • repo
+┃★│ • owner
+┃★╰──────────────
+┃★╭──────────────
+┃★│ 🛠️ *Controls*
+┃★│ • menu
+┃★│ • menu2
+┃★│ • restart
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
+
+> Powered by BUGGU MD 🐣`
+        }
+      };
+
+      if (menuData[optionNum]) {
+        try {
+          await sock.sendMessage(jid, { react: { text: "✅", key: msg.key } });
+        } catch (e) {}
+
+        try {
+          await sock.sendMessage(jid, {
+            image: { url: "https://iili.io/CCMvy1n.jpg" },
+            caption: menuData[optionNum].content
+          }, { quoted: msg });
+        } catch (e) {
+          await sock.sendMessage(jid, { text: menuData[optionNum].content }, { quoted: msg });
+        }
+        return;
+      } else {
+        try {
+          await sock.sendMessage(jid, {
+            text: `❌ *Invalid Option!* ❌\n\nPlease reply with a number between 1-10 to explore categories.\n\n*Example:* Reply with "1" for the Download Menu.`
+          }, { quoted: msg });
+        } catch (e) {}
+        return;
+      }
+    }
 
     // Direct Messages or Group Checks for global reactions (additional fallback)
     const isGroup = jid.endsWith('@g.us');
@@ -486,54 +871,99 @@ async function connectToWhatsApp(phoneToPair?: string) {
           break;
         }
 
+        case 'alive': {
+          const latency = Date.now() - (msg.messageTimestamp * 1000);
+          const aliveText = 
+            `🐣 *BUGGU MD IS LIVE AND OPERATIONAL!* 🐣\n\n` +
+            `Your WhatsApp account is successfully coupled with the BUGGU MD Control Room. All status viewer and reactor systems are fully responsive!\n\n` +
+            `📶 *Latency:* \`${latency} ms\`\n` +
+            `⚙️ *Prefix:* \`${currentPrefix}\`\n` +
+            `🛡️ *Anti-Link Guard:* \`${settings.antilink ? 'ACTIVE ✅' : 'INACTIVE ❌'}\`\n` +
+            `🛡️ *Anti-Call Shield:* \`${settings.anticall ? 'ACTIVE ✅' : 'INACTIVE ❌'}\`\n` +
+            `👀 *Auto Read Status:* \`${settings.autoread ? 'ACTIVE ✅' : 'INACTIVE ❌'}\`\n` +
+            `🎭 *Auto Sticker System:* \`${settings.autosticker ? 'ACTIVE ✅' : 'INACTIVE ❌'}\`\n` +
+            `📊 *Presence keep-alive:* \`Active 24/7\``;
+          
+          await sock.sendMessage(jid, {
+            text: makeBrandedMessage("Active Status", aliveText)
+          }, { quoted: msg });
+          break;
+        }
+
         case 'menu':
         case 'list': {
-          // Beautiful and modern custom branded command list style (with A-Z sorting per category)
-          const categories: Record<string, string[]> = {};
-          
-          // Categorize elements
-          COMMANDS.forEach((cmd: Command) => {
-            if (!categories[cmd.category]) {
-              categories[cmd.category] = [];
-            }
-            categories[cmd.category].push(`• ${currentPrefix}${cmd.name} ${cmd.emoji}`);
-          });
+          const menuCaption = `╭━━━〔 *BUGGU MD* 〕━━━┈⊷
+┃★╭──────────────
+┃★│ 👑 Owner : *Divyansh Deewana*
+┃★╰──────────────
+╰━━━━━━━━━━━━━━━┈⊷
+📋 *ᴄʜᴏᴏsᴇ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ᴛᴏ ᴇxᴘʟᴏʀᴇ:*
+> _ʀᴇᴘʟʏ ᴡɪᴛʜ ᴛʜᴇ ᴍᴀᴛᴄʜɪɴɢ ɴᴜᴍʙᴇʀ ᴛᴏ ᴏᴘᴇɴ ᴛʜᴇ ᴍᴇɴᴜ_
 
-          // Build premium response
-          let menuText = `╭━━━〔 🐣 BUGGU MD 🐣 〕━━━⬣\n\n`;
-          
-          // Order categories
-          const catOrder: Array<keyof typeof categories> = ["SYSTEM", "AUTOMATION", "SECURITY", "MEDIA", "PROFILE", "STATUS", "UTILITIES", "GROUP"];
-          catOrder.forEach(cat => {
-            if (categories[cat]) {
-              menuText += `⚙️ *${cat}*\n`;
-              // Sort commands alphabetically
-              categories[cat].sort().forEach(cmdLine => {
-                menuText += `${cmdLine}\n`;
-              });
-              menuText += `\n`;
-            }
-          });
+ ➦✧ -〘 *ʙᴏᴛ ᴍᴇɴᴜ* 〙 -  ✧━┈⊷
+┃✧ ➦♦⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
+┃✧│  ❶  *ᴅᴏᴡɴʟᴏᴅᴇᴅ ᴍᴇɴᴜ*
+┃✧│  ❷ *ɢʀᴏᴜᴘ ᴍᴇɴᴜ*
+┃✧│  ❸ *ғᴜɴ ᴍᴇɴᴜ*
+┃✧│  ❹  *ᴏᴡɴᴇʀ ᴍᴇɴᴜ*
+┃✧│  ❺  *ᴀɪ ᴍᴇɴᴜ*
+┃✧│  ❻  *ᴀɴɪᴍᴇ ᴍᴇɴᴜ*
+┃✧│  ❼  *ᴄᴏɴᴠᴇʀᴛ ᴍᴇɴᴜ*
+┃✧│  ❽  *ᴏᴛʜᴇʀ ᴍᴇɴᴜ*
+┃✧│  ❾  *ʀᴇᴀᴄʏ ᴍᴇɴᴜ*
+┃✧│  ❿  *ᴍᴀɪɴ ᴍᴇɴᴜ*
+┃✧ ➥ ⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
+ ➥⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
+🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
 
-          menuText += `╰━━━━━━━━━━━━━━⬣\n\n`;
-          menuText += `*Developer:* Divyansh Deewana\n`;
-          menuText += `*Powered By > BUGGU MD 🐣*`;
+> 🐣 BUGGU MD - Premium Multi-Device WhatsApp Bot`;
 
-          await sock.sendMessage(jid, { text: menuText }, { quoted: msg });
+          let sentMsg: any = null;
+          try {
+            sentMsg = await sock.sendMessage(jid, {
+              image: { url: "https://iili.io/CCMvy1n.jpg" },
+              caption: menuCaption
+            }, { quoted: msg });
+          } catch (e) {
+            sentMsg = await sock.sendMessage(jid, { text: menuCaption }, { quoted: msg });
+          }
+
+          if (sentMsg && sentMsg.key && sentMsg.key.id) {
+            activeMenuMessages.add(sentMsg.key.id);
+            // Clean up to prevent memory leaks after 5 minutes
+            setTimeout(() => {
+              if (sentMsg && sentMsg.key && sentMsg.key.id) {
+                activeMenuMessages.delete(sentMsg.key.id);
+              }
+            }, 300000);
+          }
+
+          try {
+            await sock.sendMessage(jid, {
+              audio: { url: 'https://files.catbox.moe/wzodz1.mp3' },
+              mimetype: 'audio/mp4',
+              ptt: true
+            }, { quoted: msg });
+          } catch (audioErr) {
+            addLog("Menu audio tone skipped or unavailable: " + audioErr);
+          }
           break;
         }
 
         case 'owner': {
           // Display developer info elegantly
-          const cardText = makeBrandedMessage(
-            "BUGGU MD Developer",
-            `👑 *Owner Profile*\n\n` +
-            `• *Name:* Divyansh Deewana\n` +
-            `• *Project:* BUGGU MD WhatsApp Bot\n` +
-            `• *Contact:* @FREEHACKS95 / @THE_FREE_HACKS\n` +
-            `• *Role:* Core Architect\n\n` +
-            `🎧 _Playing audio tune..._`
-          );
+          const cardText = 
+            `╭━━━〔 *BUGGU MD* 〕━━━┈⊷\n` +
+            `┃★╭──────────────\n` +
+            `┃★│ 👑 Owner : *Divyansh Deewana*\n` +
+            `┃★│ • Project: BUGGU MD WhatsApp Bot\n` +
+            `┃★│ • Contact: @FREEHACKS95 / @THE_FREE_HACKS\n` +
+            `┃★│ • Role: Core Architect\n` +
+            `┃★╰──────────────\n` +
+            `╰━━━━━━━━━━━━━━━┈⊷\n\n` +
+            `🎧 _Playing developer audio tune..._\n\n` +
+            `🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h\n\n` +
+            `> Powered by BUGGU MD 🐣`;
           
           // Send brand display image with profile details as the caption
           await sock.sendMessage(jid, {

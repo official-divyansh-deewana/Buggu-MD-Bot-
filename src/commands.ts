@@ -272,5 +272,12 @@ export const COMMANDS: Command[] = [
     category: "SYSTEM",
     description: "Configure primary action indicator prefixes dynamically.",
     usage: ".setprefix [character]"
+  },
+  {
+    name: "alive",
+    emoji: "🐣",
+    category: "SYSTEM",
+    description: "Check bot's alive status, active configurations, and runtime settings.",
+    usage: ".alive"
   }
 ];

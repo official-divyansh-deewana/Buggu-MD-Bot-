@@ -1,14 +1,14 @@
 {
   "status": "disconnected",
-  "qr": "2@9KgWqrALbVFawxSbbIFudFJPVyVBLopEHdDSlb7pPvyUIAOj94xpMRBH97zbRnags7y4dASP/AUhn2VQz+F92R1n7AtQCt7lib4=,lzNw9gobtvh4oGGNMmc1eBUodShMf6VC4DCnyUZJogs=,hTnEhoxngs3J6mZwqpzs1WoextFcVnWtQomGZe//eDg=,uQCBh5EUkCNBCIYOaU2cbz0lxGkKpkjoNTB80VeDoDw=",
+  "qr": "2@nPbeeernWJ+LxT6rd3/s8f4u32AD1RaFl1KTFjK3gzscwZYc/XSRkgItds7O7sKDpGmeNAXTt5poKx+HMd2JYYTQGYTVPMquPLA=,d7adBopm/WcMFEuB31atSwwwDWPNJpdFHPy13tSmtgI=,FpNeeNsOAWPt9rhef2Wn/SOWdzf1fWgu7ae5DjpYBB4=,kSoqCBI4lQv6gIxAcwwBYI712t4gbv0jfXaCRzzqW74=",
   "pairingCode": "",
   "logs": [
-    "[9:50:03 AM] New QR Code generated. Awaiting device linking on dashboard.",
-    "[9:50:01 AM] BUGGU MD Control Room backend online at: http://localhost:3000",
-    "[9:50:01 AM] Fetched latest WhatsApp Web connection version successfully: 2.3000.1035194821",
-    "[9:50:01 AM] Initializing Baileys core connection system...",
-    "[9:50:01 AM] Developing: Booting Vite dev server middleware...",
-    "[9:50:01 AM] No direct RENDER_EXTERNAL_URL detected in environment variables. Local keep-alive active."
+    "[10:17:36 AM] New QR Code generated. Awaiting device linking on dashboard.",
+    "[10:17:35 AM] BUGGU MD Control Room backend online at: http://localhost:3000",
+    "[10:17:35 AM] Fetched latest WhatsApp Web connection version successfully: 2.3000.1035194821",
+    "[10:17:35 AM] Initializing Baileys core connection system...",
+    "[10:17:35 AM] Developing: Booting Vite dev server middleware...",
+    "[10:17:35 AM] No direct RENDER_EXTERNAL_URL detected in environment variables. Local keep-alive active."
   ],
   "settings": {
     "prefix": ".",

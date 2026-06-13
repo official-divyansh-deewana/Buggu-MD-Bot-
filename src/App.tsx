@@ -8,7 +8,9 @@ import {
   Radio, 
   Search,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  Copy,
+  Check
 } from 'lucide-react';
 import { COMMANDS } from './commands.ts';
 
@@ -66,6 +68,7 @@ export default function App() {
   const [phoneNumberInput, setPhoneNumberInput] = useState('');
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   const [pairingError, setPairingError] = useState('');
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Poll server state every 3 seconds to keep UI completely synchronized
   useEffect(() => {
@@ -73,7 +76,14 @@ export default function App() {
     const fetchStatus = async () => {
       try {
         const response = await fetch('/api/status');
-        if (!response.ok) throw new Error();
+        if (!response.ok) return;
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          // Skip if response is not JSON (e.g. HTML serving during server reloads)
+          return;
+        }
+
         const data = await response.json();
         if (active) {
           setStatus(data.status);
@@ -85,7 +95,8 @@ export default function App() {
           }
         }
       } catch (err) {
-        console.error('Failed to parse logs from server api.');
+        // Intermittent network glitches are normal during dev server fast-restarts
+        console.warn('Unable to synchronize status with server API:', err);
       }
     };
 
@@ -409,13 +420,44 @@ export default function App() {
                 {serverPairingCode ? (
                   <div className="text-center space-y-4 bg-gray-950/40 p-4 rounded-xl border border-gray-800">
                     <span className="text-[10px] text-gray-500 uppercase tracking-widest block">Your WhatsApp Pairing Code</span>
-                    <div className="flex justify-center items-center space-x-1 sm:space-x-2">
-                      {serverPairingCode.split('').map((char, idx) => (
-                        <span key={idx} className={`w-8 h-10 flex items-center justify-center bg-gray-900 border border-gray-800 rounded text-lg font-black text-amber-400 font-mono shadow-inner ${char === '-' ? 'bg-transparent border-none text-gray-500 w-4' : ''}`}>
-                          {char}
-                        </span>
-                      ))}
+                    <div className="flex flex-col items-center justify-center space-y-3">
+                      <div className="flex justify-center items-center space-x-1 sm:space-x-2">
+                        {serverPairingCode.split('').map((char, idx) => (
+                          <span key={idx} className={`w-8 h-10 flex items-center justify-center bg-gray-900 border border-gray-800 rounded text-lg font-black text-amber-400 font-mono shadow-inner ${char === '-' ? 'bg-transparent border-none text-gray-500 w-4' : ''}`}>
+                            {char}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      <button
+                        type="button"
+                        id="copy-pair-code-btn"
+                        onClick={() => {
+                          const cleanCode = serverPairingCode.replace(/[^a-zA-Z0-9]/g, '');
+                          navigator.clipboard.writeText(cleanCode || serverPairingCode);
+                          setCopiedCode(true);
+                          setTimeout(() => setCopiedCode(false), 2000);
+                        }}
+                        className={`flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-semibold border transition-all duration-200 cursor-pointer ${
+                          copiedCode 
+                            ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.15)]' 
+                            : 'bg-gray-900 border-gray-800 text-gray-300 hover:text-white hover:bg-gray-850 hover:border-gray-700'
+                        }`}
+                      >
+                        {copiedCode ? (
+                          <>
+                            <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            <span>Code Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3.5 w-3.5 text-gray-400" />
+                            <span>Copy 8-Digit Code</span>
+                          </>
+                        )}
+                      </button>
                     </div>
+
                     <div className="text-xs text-gray-400 text-left space-y-2 leading-relaxed bg-[#111827] p-3 rounded-lg border border-gray-800">
                       <p>1. Open WhatsApp &rarr; Linked Devices &rarr; Link a Device.</p>
                       <p>2. Tap <span className="text-amber-500 font-semibold">Link with phone number instead</span>.</p>
@@ -423,8 +465,9 @@ export default function App() {
                     </div>
                     <button
                       type="button"
+                      id="request-new-code-btn"
                       onClick={() => setServerPairingCode('')}
-                      className="text-[10px] uppercase font-bold tracking-wider text-gray-400 hover:text-white transition-colors"
+                      className="text-[10px] uppercase font-bold tracking-wider text-gray-400 hover:text-white transition-colors cursor-pointer"
                     >
                       Request New Code
                     </button>
