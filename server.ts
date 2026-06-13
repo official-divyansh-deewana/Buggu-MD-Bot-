@@ -96,7 +96,7 @@ function makeBrandedMessage(title: string, content: string): string {
 }
 
 // Start WhatsApp socket logic
-async function connectToWhatsApp() {
+async function connectToWhatsApp(phoneToPair?: string) {
   // Prevent socket/file descriptor leaks by terminating previous socket instance
   if (sock) {
     try {
@@ -113,22 +113,98 @@ async function connectToWhatsApp() {
     sock = null;
   }
 
-  const { state, saveCreds } = await useMultiFileAuthState(path.join(process.cwd(), 'sessions/buggu-session'));
+  // Ensure sessions directories exist to prevent ENOENT folder errors
+  const sessionsDir = path.join(process.cwd(), 'sessions');
+  if (!fs.existsSync(sessionsDir)) {
+    fs.mkdirSync(sessionsDir, { recursive: true });
+  }
+
+  const sessionPath = path.join(process.cwd(), 'sessions/buggu-session');
+  if (!fs.existsSync(sessionPath)) {
+    fs.mkdirSync(sessionPath, { recursive: true });
+  }
+
+  // Wiping session if we are pairing a new phone number to start 100% clean
+  if (phoneToPair) {
+    addLog(`Wiping any existing session database to request a fresh pairing code for ${phoneToPair}...`);
+    try {
+      if (fs.existsSync(sessionPath)) {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+      }
+      fs.mkdirSync(sessionPath, { recursive: true });
+    } catch (err: any) {
+      addLog(`Failed to clear session path for pairing: ${err.message}`);
+    }
+  }
+
+  let state, saveCreds;
+  try {
+    const authResult = await useMultiFileAuthState(sessionPath);
+    state = authResult.state;
+    saveCreds = authResult.saveCreds;
+  } catch (authError: any) {
+    addLog(`⚠️ Auth initialization failed: ${authError.message}. Clearing sessions cache and retrying...`);
+    try {
+      if (fs.existsSync(sessionPath)) {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+      }
+      fs.mkdirSync(sessionPath, { recursive: true });
+    } catch (rmErr) {}
+    
+    try {
+      const authResult = await useMultiFileAuthState(sessionPath);
+      state = authResult.state;
+      saveCreds = authResult.saveCreds;
+    } catch (retryError: any) {
+      addLog(`Fatal auth retry error: ${retryError.message}`);
+      botState.status = 'disconnected';
+      return;
+    }
+  }
   
   addLog("Initializing Baileys core connection system...");
   botState.status = 'connecting';
 
-  sock = ((makeWASocket as any).default || makeWASocket)({
-    auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }))
-    } as any,
-    printQRInTerminal: true,
-    logger: pino({ level: 'silent' }),
-    browser: ["Ubuntu", "Chrome", "20.0.04"]
-  });
+  try {
+    sock = ((makeWASocket as any).default || makeWASocket)({
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }))
+      } as any,
+      printQRInTerminal: true,
+      logger: pino({ level: 'silent' }),
+      browser: ["Ubuntu", "Chrome", "20.0.04"]
+    });
+  } catch (sockError: any) {
+    addLog(`Socket creation failed: ${sockError.message}. Initiating emergency session cache wipe...`);
+    try {
+      if (fs.existsSync(sessionPath)) {
+        fs.rmSync(sessionPath, { recursive: true, force: true });
+      }
+    } catch (e) {}
+    botState.status = 'disconnected';
+    setTimeout(() => {
+      connectToWhatsApp();
+    }, 3000);
+    return;
+  }
 
   sock.ev.on('creds.update', saveCreds);
+
+  // If pairing code is requested, handle it after socket becomes ready
+  if (phoneToPair && !state.creds.registered) {
+    setTimeout(async () => {
+      try {
+        addLog(`Requesting pairing code from WhatsApp servers for number: ${phoneToPair}...`);
+        const code = await sock.requestPairingCode(phoneToPair);
+        botState.pairingCode = code;
+        addLog(`✨ Successfully received WhatsApp pairing code: ${code}`);
+      } catch (err: any) {
+        addLog(`Failed to request pairing code inside socket: ${err.message}`);
+        botState.pairingCode = '';
+      }
+    }, 2500);
+  }
 
   sock.ev.on('connection.update', (update: any) => {
     const { connection, lastDisconnect, qr } = update;
@@ -1089,23 +1165,27 @@ app.post('/api/pair-code', async (req, res) => {
   }
 
   try {
-    addLog(`Pair request: Requesting pairing code for phone: ${sanitizedPhone}...`);
+    botState.pairingCode = ''; // Clear previous code
+    addLog(`Pair request: Initializing fresh clean connection system for phone: ${sanitizedPhone}...`);
     
-    // Ensure we have an active connection start
-    if (!sock) {
-      await connectToWhatsApp();
+    // Connect and start pairing process with fresh sandboxed session
+    await connectToWhatsApp(sanitizedPhone);
+    
+    // Active polling block: Wait for up to 10 seconds to see if pairing code was handshaked and generated
+    let attempts = 0;
+    while (attempts < 20 && !botState.pairingCode) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      attempts++;
     }
     
-    // Baileys requires a moment for connection registration handshake checks
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    
-    const code = await sock.requestPairingCode(sanitizedPhone);
-    botState.pairingCode = code;
-    addLog(`✨ Successfully received WhatsApp pairing code: ${code}`);
-    return res.json({ success: true, code });
+    if (botState.pairingCode) {
+      return res.json({ success: true, code: botState.pairingCode });
+    } else {
+      throw new Error("WhatsApp servers timed out or rejected pairing code request. Correct your country code and make sure the number is active on WhatsApp.");
+    }
   } catch (err: any) {
     addLog(`Pairing code system fault: ${err.message}`);
-    return res.status(500).json({ error: `Could not fetch pairing code from WhatsApp: ${err.message}. If the session files are stale, please wait 15 seconds or check console logging stream.` });
+    return res.status(500).json({ error: `Could not fetch pairing code from WhatsApp: ${err.message}. Please click 'Reset Session & Clean Cache' and try again.` });
   }
 });
 
