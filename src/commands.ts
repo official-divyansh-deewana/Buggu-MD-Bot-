@@ -279,5 +279,33 @@ export const COMMANDS: Command[] = [
     category: "SYSTEM",
     description: "Check bot's alive status, active configurations, and runtime settings.",
     usage: ".alive"
+  },
+  {
+    name: "help",
+    emoji: "❓",
+    category: "SYSTEM",
+    description: "Display general help and interactive menu categories.",
+    usage: ".help"
+  },
+  {
+    name: "settings",
+    emoji: "⚙️",
+    category: "SYSTEM",
+    description: "View all active automation toggle controls and server preferences.",
+    usage: ".settings"
+  },
+  {
+    name: "newsletter",
+    emoji: "📢",
+    category: "SYSTEM",
+    description: "Display official BUGGU MD updates and channel join-links.",
+    usage: ".newsletter"
+  },
+  {
+    name: "channel",
+    emoji: "📺",
+    category: "SYSTEM",
+    description: "Explore official BUGGU developer community channels.",
+    usage: ".channel"
   }
 ];

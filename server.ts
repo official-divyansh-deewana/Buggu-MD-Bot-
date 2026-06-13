@@ -456,17 +456,17 @@ async function connectToWhatsApp(phoneToPair?: string) {
       } catch (e) {}
     }
 
-    // Extract text content of message
+    // Extract text content of message robustly, ensuring that even if other keys like senderKeyDistributionMessage or messageContextInfo are present, we still parse the text core
     let body = "";
-    if (messageType === 'conversation') {
+    if (messageContent.conversation) {
       body = messageContent.conversation;
-    } else if (messageType === 'extendedTextMessage') {
+    } else if (messageContent.extendedTextMessage?.text) {
       body = messageContent.extendedTextMessage.text;
-    } else if (messageType === 'imageMessage') {
+    } else if (messageContent.imageMessage?.caption) {
       body = messageContent.imageMessage.caption;
-    } else if (messageType === 'videoMessage') {
+    } else if (messageContent.videoMessage?.caption) {
       body = messageContent.videoMessage.caption;
-    } else if (messageType === 'documentMessage') {
+    } else if (messageContent.documentMessage?.caption) {
       body = messageContent.documentMessage.caption;
     }
 
@@ -890,8 +890,49 @@ async function connectToWhatsApp(phoneToPair?: string) {
           break;
         }
 
+        case 'settings': {
+          const settingsText = 
+            `⚙️ *BUGGU MD SYSTEM SETTINGS* ⚙️\n\n` +
+            `Here are your current system auto-control configuration layers:\n\n` +
+            `⚙️ *Active Prefix:* \`${currentPrefix}\`\n` +
+            `👀 *Auto Read Messages:* \`${settings.autoread ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `❤️ *Auto DM Reaction:* \`${settings.autoreact ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `📸 *Auto Status View:* \`${settings.autostatusview ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `😍 *Auto Status React:* \`${settings.autostatusreact ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `🛡️ *Anti-Delete Guard:* \`${settings.antidelete ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `🚫 *Anti-Call Shield:* \`${settings.anticall ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `🔗 *Anti-Link Group Guard:* \`${settings.antilink ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `🤖 *Intelligent Auto Reply:* \`${settings.autoreply ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `💬 *DM React Limit:* \`${settings.autoreactdm ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `👨‍👩‍👧‍👦 *Group React Limit:* \`${settings.autoreactgc ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n` +
+            `🎭 *Auto Sticker Converter:* \`${settings.autosticker ? 'ENABLED (ON) ✅' : 'DISABLED (OFF) ❌'}\`\n\n` +
+            `🔮 *TO CONFIGURE:* Use commands like \`${currentPrefix}autoread [on/off]\`, \`${currentPrefix}setprefix [char]\` or manage dynamically from the Web Control Room.`;
+          
+          await sock.sendMessage(jid, {
+            text: makeBrandedMessage("System Configurations", settingsText)
+          }, { quoted: msg });
+          break;
+        }
+
+        case 'newsletter':
+        case 'channel': {
+          const channelText = 
+            `📢 *BUGGU MD COMMUNITY PLAZA* 📢\n\n` +
+            `Join the official BUGGU MD developer updates channel to access community presets, support resources, and premium features updates directly!\n\n` +
+            `🔗 *Channel Joining Link:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h\n\n` +
+            `👑 *Developer:* Divyansh Deewana\n\n` +
+            `_Tap on the link above, join, and unmute notifications to stay updated!_`;
+          
+          await sock.sendMessage(jid, {
+            image: { url: "https://iili.io/CCMvy1n.jpg" },
+            caption: makeBrandedMessage("Updates Channel", channelText)
+          }, { quoted: msg });
+          break;
+        }
+
         case 'menu':
-        case 'list': {
+        case 'list':
+        case 'help': {
           const menuCaption = `╭━━━〔 *BUGGU MD* 〕━━━┈⊷
 ┃★╭──────────────
 ┃★│ 👑 Owner : *Divyansh Deewana*
