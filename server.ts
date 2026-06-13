@@ -13,6 +13,7 @@ import makeWASocket, {
   jidNormalizedUser,
   makeCacheableSignalKeyStore
 } from '@whiskeysockets/baileys';
+import { createServer as createViteServer } from 'vite';
 
 // Import CLI commands list for dynamic registration
 import { COMMANDS, Command } from './src/commands.js';
@@ -68,6 +69,7 @@ if (fs.existsSync(SETTINGS_FILE)) {
 let botState = {
   status: 'disconnected', // 'disconnected' | 'connecting' | 'connected'
   qr: '',
+  pairingCode: '',
   logs: [] as string[]
 };
 
@@ -81,6 +83,7 @@ function addLog(msg: string) {
 
 // Global WhatsApp dynamic socket connection reference
 let sock: any = null;
+let keepAliveInterval: any = null;
 
 // Premium branded header builder
 function makeBrandedMessage(title: string, content: string): string {
@@ -105,7 +108,7 @@ async function connectToWhatsApp() {
     } as any,
     printQRInTerminal: true,
     logger: pino({ level: 'silent' }),
-    browser: ['BUGGU MD Control Panel', 'Safari', '3.0']
+    browser: ["Ubuntu", "Chrome", "20.0.04"]
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -121,11 +124,19 @@ async function connectToWhatsApp() {
 
     if (connection === 'close') {
       botState.qr = '';
+      botState.pairingCode = '';
+      if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+      }
       const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
       addLog(`Connection closed. StatusCode: ${(lastDisconnect?.error as any)?.output?.statusCode}. Active reconnection: ${shouldReconnect}`);
       
       if (shouldReconnect) {
-        connectToWhatsApp();
+        addLog("Scheduling safe reconnection in 8 seconds to prevent connection overload...");
+        setTimeout(() => {
+          connectToWhatsApp();
+        }, 8000);
       } else {
         botState.status = 'disconnected';
         addLog("WhatsApp account logged out. Please clear server session folder and rescan QR.");
@@ -133,7 +144,21 @@ async function connectToWhatsApp() {
     } else if (connection === 'open') {
       botState.status = 'connected';
       botState.qr = '';
+      botState.pairingCode = '';
       addLog(`✨ WhatsApp Device online! Logged in as: ${sock.user.id}`);
+
+      // Start presence check keep-alive so WhatsApp session never sleeps
+      if (keepAliveInterval) clearInterval(keepAliveInterval);
+      keepAliveInterval = setInterval(async () => {
+        if (sock && botState.status === 'connected') {
+          try {
+            await sock.sendPresenceUpdate('available');
+            addLog("Executing active Presence Keep-Alive (always online seen)...");
+          } catch (e) {
+            addLog(`Presence Keep-Alive error: ${e}`);
+          }
+        }
+      }, 20000); // 20 seconds keep-alive loop
     }
   });
 
@@ -172,25 +197,32 @@ async function connectToWhatsApp() {
 
     const messageType = Object.keys(msg.message)[0];
     
-    // Auto status view & status reactor
+    // Auto status view & status reactor (Always status seen and react is always on)
     if (jid === 'status@broadcast') {
-      if (settings.autostatusview) {
+      try {
         await sock.readMessages([msg.key]);
-        addLog(`Autoview: Viewed status from ${msg.pushName || 'Anonymous'}`);
-      }
-      if (settings.autostatusreact) {
-        try {
-          await sock.sendMessage(jid, {
-            react: { text: "😍", key: msg.key }
-          }, { statusJidList: [msg.key.participant || ""] });
-        } catch (e) {}
-      }
+        addLog(`Autoview (Always Seen): Viewed status from ${msg.pushName || 'Anonymous'}`);
+      } catch (e) {}
+
+      try {
+        await sock.sendMessage(jid, {
+          react: { text: "😍", key: msg.key }
+        }, { statusJidList: [msg.key.participant || ""] });
+        addLog(`Autoreact Status (Always Reactor): Reacted 😍 to status from ${msg.pushName || 'Anonymous'}`);
+      } catch (e) {}
       return; // Skip normal command processing for status broadcast
     }
 
     // Auto Read implementation
     if (settings.autoread) {
       await sock.readMessages([msg.key]);
+    }
+
+    // Always react to incoming normal messages (React is always active / always on)
+    if (!msg.key.fromMe && jid) {
+      try {
+        await sock.sendMessage(jid, { react: { text: "❤️", key: msg.key } });
+      } catch (e) {}
     }
 
     // Extract text content of message
@@ -207,7 +239,7 @@ async function connectToWhatsApp() {
 
     if (!body) return;
 
-    // Direct Messages or Group Checks for global reactions
+    // Direct Messages or Group Checks for global reactions (additional fallback)
     const isGroup = jid.endsWith('@g.us');
     if (settings.autoreact) {
       try {
@@ -957,19 +989,53 @@ async function connectToWhatsApp() {
   });
 }
 
-// Start WhatsApp on execution boot
-connectToWhatsApp();
-
-
 // --- API ROUTES FOR CORE CONTROLLER DASHBOARD ---
 
 app.get('/api/status', (req, res) => {
   res.json({
     status: botState.status,
     qr: botState.qr,
+    pairingCode: botState.pairingCode,
     logs: botState.logs,
     settings: settings
   });
+});
+
+app.post('/api/pair-code', async (req, res) => {
+  const { phone } = req.body;
+  if (!phone || typeof phone !== 'string') {
+    return res.status(400).json({ error: 'Please specify a phone number (e.g. 91xxxxxxxx).' });
+  }
+
+  // Sanitize the phone number to digits only
+  const sanitizedPhone = phone.replace(/[^0-9]/g, '');
+  if (!sanitizedPhone || sanitizedPhone.length < 8) {
+    return res.status(400).json({ error: 'Invalid phone number format. Provide country code + phone number without any spaces, + or signs.' });
+  }
+
+  if (botState.status === 'connected') {
+    return res.status(400).json({ error: 'Bot is already connected! You must logout first to pair another device.' });
+  }
+
+  try {
+    addLog(`Pair request: Requesting pairing code for phone: ${sanitizedPhone}...`);
+    
+    // Ensure we have an active connection start
+    if (!sock) {
+      await connectToWhatsApp();
+    }
+    
+    // Baileys requires a moment for connection registration handshake checks
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    
+    const code = await sock.requestPairingCode(sanitizedPhone);
+    botState.pairingCode = code;
+    addLog(`✨ Successfully received WhatsApp pairing code: ${code}`);
+    return res.json({ success: true, code });
+  } catch (err: any) {
+    addLog(`Pairing code system fault: ${err.message}`);
+    return res.status(500).json({ error: `Could not fetch pairing code from WhatsApp: ${err.message}. If the session files are stale, please wait 15 seconds or check console logging stream.` });
+  }
 });
 
 app.post('/api/settings', (req, res) => {
@@ -980,13 +1046,31 @@ app.post('/api/settings', (req, res) => {
   res.json({ success: true, settings });
 });
 
-// Serve frontend package bundles
-app.use(express.static(path.join(process.cwd(), 'dist/public')));
+// Setup server and integrate Vite middleware or static files
+async function startServer() {
+  // Start WhatsApp on execution boot
+  connectToWhatsApp();
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'dist/public/index.html'));
-});
+  if (process.env.NODE_ENV !== "production") {
+    addLog("Developing: Booting Vite dev server middleware...");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    addLog("Production: Serving static assets from dist/public...");
+    // Serve frontend package bundles
+    app.use(express.static(path.join(process.cwd(), 'dist/public')));
 
-app.listen(PORT, '0.0.0.0', () => {
-  addLog(`BUGGU MD Control Room backend online at: http://localhost:${PORT}`);
-});
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(process.cwd(), 'dist/public/index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    addLog(`BUGGU MD Control Room backend online at: http://localhost:${PORT}`);
+  });
+}
+
+startServer();

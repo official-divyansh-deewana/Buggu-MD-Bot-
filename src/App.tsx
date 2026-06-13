@@ -1,21 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Play, 
-  Settings, 
   Terminal, 
   BookOpen, 
-  ShieldCheck, 
   Sliders, 
-  HelpCircle, 
   RefreshCw, 
   Sparkles, 
   Radio, 
-  ChevronRight,
   Search,
   CheckCircle,
   AlertTriangle
 } from 'lucide-react';
-import { COMMANDS, Command } from './commands.ts';
+import { COMMANDS } from './commands.ts';
 
 interface BotSettings {
   prefix: string;
@@ -40,6 +35,7 @@ interface BotSettings {
 export default function App() {
   const [status, setStatus] = useState<string>('disconnected');
   const [qrCode, setQrCode] = useState<string>('');
+  const [serverPairingCode, setServerPairingCode] = useState<string>('');
   const [logs, setLogs] = useState<string[]>([]);
   const [settings, setSettings] = useState<BotSettings>({
     prefix: '.',
@@ -64,7 +60,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'console' | 'settings' | 'commands'>('console');
   const [searchQuery, setSearchQuery] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
-  const [showQrHelper, setShowQrHelper] = useState(true);
+
+  // Phone number pairing code states
+  const [pairingMethod, setPairingMethod] = useState<'qr' | 'phone'>('qr');
+  const [phoneNumberInput, setPhoneNumberInput] = useState('');
+  const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  const [pairingError, setPairingError] = useState('');
 
   // Poll server state every 3 seconds to keep UI completely synchronized
   useEffect(() => {
@@ -77,6 +78,7 @@ export default function App() {
         if (active) {
           setStatus(data.status);
           setQrCode(data.qr);
+          setServerPairingCode(data.pairingCode || '');
           setLogs(data.logs || []);
           if (data.settings) {
             setSettings(data.settings);
@@ -149,6 +151,32 @@ export default function App() {
       alert('Failed to update prefix on active server.');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleGeneratePairingCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phoneNumberInput) {
+      setPairingError('Please enter a valid WhatsApp phone number with country code.');
+      return;
+    }
+    setIsGeneratingCode(true);
+    setPairingError('');
+    try {
+      const response = await fetch('/api/pair-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phoneNumberInput })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to request pairing code.');
+      }
+      setServerPairingCode(data.code || '');
+    } catch (err: any) {
+      setPairingError(err.message || 'Could not connect to pairing endpoint.');
+    } finally {
+      setIsGeneratingCode(false);
     }
   };
 
@@ -259,62 +287,147 @@ export default function App() {
               <a href="https://iili.io/CCMvy1n.jpg" target="_blank" rel="noreferrer" className="text-[10px] text-amber-500 hover:underline">Logo 3</a>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-left bg-gray-950/50 p-3 rounded-xl border border-gray-900 text-xs">
+            <div className="text-left bg-gray-950/50 p-3 rounded-xl border border-gray-900 text-xs flex justify-between items-center">
               <div>
-                <span className="text-gray-500 block">Prefix</span>
+                <span className="text-gray-500 block">Prefix Mode</span>
                 <span className="font-mono text-white text-base font-bold">{settings.prefix || '.'}</span>
               </div>
-              <div>
-                <span className="text-gray-500 block">JID Newsletter</span>
-                <span className="font-mono text-white text-[10px] break-all block leading-tight font-semibold" title="120363377933108135@newsletter">
-                  120363377933108135@newsletter
-                </span>
+              <div className="text-right">
+                <span className="text-gray-500 block text-[10px]">LOCKED PROFILE</span>
+                <span className="text-amber-500 text-xs font-bold font-mono">Premium Core</span>
               </div>
             </div>
           </div>
 
-          {/* QR CODE SCANNER */}
-          <div className="rounded-2xl border border-gray-800 bg-[#0e1320] p-6">
-            <h3 className="text-sm font-bold text-gray-300 uppercase tracking-widest mb-4 flex items-center">
-              <Radio className="h-4 w-4 mr-2 text-amber-500 animate-pulse" />
-              Baileys QR Pairing
-            </h3>
+          {/* DEVICE COUPLING WORKSPACE (QR & PAIRING CODE) */}
+          <div className="rounded-2xl border border-gray-800 bg-[#0e1320] p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+              <h3 className="text-sm font-bold text-gray-300 uppercase tracking-widest flex items-center">
+                <Radio className="h-4 w-4 mr-2 text-amber-500 animate-pulse" />
+                Connection Link
+              </h3>
+              {/* Tabs for QR vs Pairing Code */}
+              {status !== 'connected' && (
+                <div className="flex space-x-1 bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+                  <button
+                    onClick={() => setPairingMethod('qr')}
+                    className={`px-2.5 py-1 text-[10px] uppercase font-bold rounded-md transition-all ${pairingMethod === 'qr' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    QR Code
+                  </button>
+                  <button
+                    onClick={() => setPairingMethod('phone')}
+                    className={`px-2.5 py-1 text-[10px] uppercase font-bold rounded-md transition-all ${pairingMethod === 'phone' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}
+                  >
+                    Pair Code
+                  </button>
+                </div>
+              )}
+            </div>
 
             {status === 'connected' ? (
               <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-6 text-center space-y-3">
-                <CheckCircle className="h-12 w-12 text-emerald-400 mx-auto" />
+                <CheckCircle className="h-12 w-12 text-emerald-400 mx-auto animate-bounce" />
                 <div>
                   <h4 className="text-emerald-400 font-bold">Successfully Connected</h4>
-                  <p className="text-xs text-gray-400 mt-1">BUGGU MD is dynamically synchronized with your phone device. You can type commands in WhatsApp chats directly!</p>
+                  <p className="text-xs text-gray-400 mt-1">BUGGU MD is dynamically synchronized with your phone device. Keep-alive system is fully armed!</p>
                 </div>
               </div>
-            ) : qrCode ? (
-              <div className="space-y-4">
-                <div className="bg-white p-3 rounded-xl max-w-[220px] mx-auto shadow-2xl">
-                  {/* Dynamic QrCode Renderer */}
-                  <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCode)}`}
-                    alt="Scan to login"
-                    className="w-full h-auto"
-                  />
+            ) : pairingMethod === 'qr' ? (
+              // QR CODE VIEW
+              qrCode ? (
+                <div className="space-y-4">
+                  <div className="bg-white p-3 rounded-xl max-w-[220px] mx-auto shadow-2xl">
+                    <img 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrCode)}`}
+                      alt="Scan to login"
+                      className="w-full h-auto"
+                    />
+                  </div>
+                  <div className="text-xs text-gray-400 text-center space-y-2 leading-relaxed bg-[#111827] p-3 rounded-lg border border-gray-800">
+                    <p className="text-amber-400 font-bold flex items-center justify-center">
+                      <Sparkles className="h-3.0 w-3.0 mr-1.5" />
+                      QR Instructions
+                    </p>
+                    <p>1. Open WhatsApp &rarr; Linked Devices &rarr; Link a Device.</p>
+                    <p>2. Scan this QR Code to pair BUGGU MD.</p>
+                  </div>
                 </div>
-                <div className="text-xs text-gray-400 text-center space-y-2 leading-relaxed bg-[#111827] p-3 rounded-lg border border-gray-800">
-                  <p className="text-amber-400 font-bold flex items-center justify-center">
-                    <Sparkles className="h-3.0 w-3.0 mr-1.5" />
-                    How to Pair?
-                  </p>
-                  <p>1. Open WhatsApp on your primary phone.</p>
-                  <p>2. Go to Linked Devices &rarr; Link a Device.</p>
-                  <p>3. Scan this QR Code to pair BUGGU MD.</p>
+              ) : (
+                <div className="text-center py-8 text-gray-500 space-y-4 bg-gray-950/30 rounded-xl border border-dashed border-gray-800">
+                  <RefreshCw className="h-8 w-8 animate-spin mx-auto text-amber-500/50" />
+                  <div className="text-xs">
+                    Generating secure QR code pipeline...
+                    <p className="text-[10px] text-gray-600 mt-1">Usually takes 5-10 seconds to compile credentials.</p>
+                  </div>
                 </div>
-              </div>
+              )
             ) : (
-              <div className="text-center py-8 text-gray-500 space-y-4 bg-gray-950/30 rounded-xl border border-dashed border-gray-800">
-                <RefreshCw className="h-8 w-8 animate-spin mx-auto text-amber-500/50" />
-                <div className="text-xs">
-                  Awaiting connection pipeline...
-                  <p className="text-[10px] text-gray-600 mt-1">If QR doesn't load immediately, wait 10 seconds or check live terminal logs.</p>
-                </div>
+              // PHONE NUMBER PAIRING VIEW
+              <div className="space-y-4">
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Enter your phone number with your country code (e.g., <span className="font-mono text-amber-400 font-semibold">918274932155</span> for India or <span className="font-mono text-amber-400 font-semibold">1xxxxxxxxxx</span> for US) to request a temporary secure pairing code.
+                </p>
+
+                {pairingError && (
+                  <div className="bg-red-950/20 border border-red-500/20 text-red-400 text-xs p-3 rounded-xl flex items-start space-x-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{pairingError}</span>
+                  </div>
+                )}
+
+                {serverPairingCode ? (
+                  <div className="text-center space-y-4 bg-gray-950/40 p-4 rounded-xl border border-gray-800">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest block">Your WhatsApp Pairing Code</span>
+                    <div className="flex justify-center items-center space-x-1 sm:space-x-2">
+                      {serverPairingCode.split('').map((char, idx) => (
+                        <span key={idx} className={`w-8 h-10 flex items-center justify-center bg-gray-900 border border-gray-800 rounded text-lg font-black text-amber-400 font-mono shadow-inner ${char === '-' ? 'bg-transparent border-none text-gray-500 w-4' : ''}`}>
+                          {char}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="text-xs text-gray-400 text-left space-y-2 leading-relaxed bg-[#111827] p-3 rounded-lg border border-gray-800">
+                      <p>1. Open WhatsApp &rarr; Linked Devices &rarr; Link a Device.</p>
+                      <p>2. Tap <span className="text-amber-500 font-semibold">Link with phone number instead</span>.</p>
+                      <p>3. Enter the 8-character coupling code above.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setServerPairingCode('')}
+                      className="text-[10px] uppercase font-bold tracking-wider text-gray-400 hover:text-white transition-colors"
+                    >
+                      Request New Code
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleGeneratePairingCode} className="space-y-3">
+                    <div>
+                      <label className="text-[10px] uppercase font-mono text-gray-400 block mb-1">WhatsApp Phone Number</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 918274932155"
+                        value={phoneNumberInput}
+                        onChange={(e) => setPhoneNumberInput(e.target.value)}
+                        className="bg-[#111827] border border-gray-800 rounded-lg px-4 py-2 font-mono text-amber-400 font-bold focus:outline-none focus:border-amber-500 w-full placeholder:text-gray-700"
+                        disabled={isGeneratingCode}
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isGeneratingCode}
+                      className="w-full bg-amber-500 hover:bg-amber-600 disabled:bg-gray-800 disabled:text-gray-500 transition-colors text-black font-extrabold text-xs py-3 rounded-lg uppercase tracking-wider flex items-center justify-center space-x-2"
+                    >
+                      {isGeneratingCode ? (
+                        <>
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                          <span>Generating...</span>
+                        </>
+                      ) : (
+                        <span>Generate Pairing Code</span>
+                      )}
+                    </button>
+                  </form>
+                )}
               </div>
             )}
           </div>
