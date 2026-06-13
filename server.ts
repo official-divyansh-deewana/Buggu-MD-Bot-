@@ -84,6 +84,7 @@ function addLog(msg: string) {
 // Global WhatsApp dynamic socket connection reference
 let sock: any = null;
 let keepAliveInterval: any = null;
+let lastActiveConnectedTimestamp = Date.now();
 
 // Premium branded header builder
 function makeBrandedMessage(title: string, content: string): string {
@@ -145,24 +146,54 @@ async function connectToWhatsApp() {
         clearInterval(keepAliveInterval);
         keepAliveInterval = null;
       }
-      const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
-      addLog(`Connection closed. StatusCode: ${(lastDisconnect?.error as any)?.output?.statusCode}. Active reconnection: ${shouldReconnect}`);
       
-      if (shouldReconnect) {
-        addLog("Scheduling safe reconnection in 8 seconds to prevent connection overload...");
+      const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+      const errorMessage = (lastDisconnect?.error as any)?.message || '';
+      
+      // Check if session is explicitly logged out or authenticated files are corrupted/bad
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut || 
+                         statusCode === 401 || 
+                         statusCode === 403 || 
+                         statusCode === 405 ||
+                         statusCode === 411 || // Bad session metadata rejection
+                         errorMessage.includes('Unauthorized') || 
+                         errorMessage.includes('logged out') ||
+                         errorMessage.includes('bad session');
+                         
+      addLog(`Connection closed status. StatusCode: ${statusCode}. Message: ${errorMessage}. isLoggedOut: ${isLoggedOut}`);
+      
+      if (isLoggedOut) {
+        botState.status = 'disconnected';
+        addLog("⚠️ WhatsApp session expired or credentials corrupted! Clearing stale session files for dynamic QR renewal...");
+        
+        const sessionPath = path.join(process.cwd(), 'sessions/buggu-session');
+        try {
+          if (fs.existsSync(sessionPath)) {
+            fs.rmSync(sessionPath, { recursive: true, force: true });
+            addLog("Stale session store cleanly wiped.");
+          }
+        } catch (err: any) {
+          addLog(`Stale cache purge error: ${err.message}`);
+        }
+        
+        // Boot fresh connection completely clean to auto-generate scan-ready QR code immediately
+        setTimeout(() => {
+          connectToWhatsApp();
+        }, 2000);
+      } else {
+        // Safe retry loop for transient network hiccups
+        addLog("Scheduling standby reconnection after 8 seconds (transient network event)...");
         setTimeout(() => {
           connectToWhatsApp();
         }, 8000);
-      } else {
-        botState.status = 'disconnected';
-        addLog("WhatsApp account logged out. Please clear server session folder and rescan QR.");
       }
     } else if (connection === 'open') {
       botState.status = 'connected';
       botState.qr = '';
       botState.pairingCode = '';
+      lastActiveConnectedTimestamp = Date.now(); // Reset watchdog timeline to active uptime
       addLog(`✨ WhatsApp Device online! Logged in as: ${sock.user.id}`);
-
+ 
       // Send dynamic connection confirmation notification message directly to WhatsApp device owner
       const myJid = jidNormalizedUser(sock.user.id);
       try {
@@ -181,12 +212,12 @@ async function connectToWhatsApp() {
         }).then(() => {
           addLog(`Sent connection notification message to connected JID: ${myJid}`);
         }).catch((err: any) => {
-          addLog(`Failed to dispatch connection success message payload: ${err}`);
+          addLog(`Failed to dispatch connection success message coupling notification: ${err}`);
         });
       } catch (sendErr) {
-        addLog(`Failed to dispatch connection success message: ${sendErr}`);
+        addLog(`Failed to dispatch connection success message helper: ${sendErr}`);
       }
-
+ 
       // Start presence check keep-alive so WhatsApp session never sleeps
       if (keepAliveInterval) clearInterval(keepAliveInterval);
       keepAliveInterval = setInterval(async () => {
@@ -1137,6 +1168,56 @@ app.post('/api/settings', (req, res) => {
 async function startServer() {
   // Start WhatsApp on execution boot
   connectToWhatsApp();
+
+  // 1. Connection Watchdog Loop (guards and recovers offline bots in under 5 minutes)
+  setInterval(() => {
+    try {
+      const sessionPath = path.join(process.cwd(), 'sessions/buggu-session');
+      const credsExists = fs.existsSync(path.join(sessionPath, 'creds.json'));
+      
+      if (botState.status === 'connected') {
+        lastActiveConnectedTimestamp = Date.now();
+        return; // Bot is functioning perfectly.
+      }
+      
+      const offlineMinutes = (Date.now() - lastActiveConnectedTimestamp) / 1000 / 60;
+      
+      if (credsExists) {
+        if (offlineMinutes >= 3.5) { // 3.5 minutes is comfortable and under the 5 minutes requirement
+          addLog(`⚠️ Watchdog Alert: Bot has been offline/restless for ${offlineMinutes.toFixed(1)} minutes with valid session files. Initiating active Auto-Resurrection...`);
+          // Reviving the connection completely
+          connectToWhatsApp();
+          lastActiveConnectedTimestamp = Date.now(); // Reset counter to avoid duplicate active execution calls
+        }
+      } else {
+        // No session credentials exists (fresh start / not scanned yet)
+        if (!sock && botState.status === 'disconnected') {
+          addLog("Watchdog notice: No active WhatsApp socket running and no cached credentials. Starting pipeline to generate new QR/pairing code.");
+          connectToWhatsApp();
+        }
+      }
+    } catch (err: any) {
+      addLog(`Watchdog system encountered a verification fault: ${err.message}`);
+    }
+  }, 60000); // Check every 60 seconds (1 minute)
+
+  // 2. Render Keep-Alive active self-pinger (stops container going to sleep)
+  const externalUrl = process.env.RENDER_EXTERNAL_URL;
+  if (externalUrl) {
+    addLog(`🚀 Active Keep-Alive Self-Pinger armed and initialized for target URL: ${externalUrl}`);
+    setInterval(async () => {
+      try {
+        const response = await axios.get(`${externalUrl}/api/status`);
+        if (response.status === 200) {
+          addLog(`Self-Ping keep-alive dispatched successfully to ${externalUrl} [Status: ${response.status}]`);
+        }
+      } catch (err: any) {
+        addLog(`Self-Ping kept container active with warning: ${err.message}`);
+      }
+    }, 120000); // Ping every 2 minutes
+  } else {
+    addLog("No direct RENDER_EXTERNAL_URL detected in environment variables. Local keep-alive active.");
+  }
 
   if (process.env.NODE_ENV !== "production") {
     addLog("Developing: Booting Vite dev server middleware...");
