@@ -1,0 +1,32 @@
+{
+  "status": "disconnected",
+  "qr": "2@9KgWqrALbVFawxSbbIFudFJPVyVBLopEHdDSlb7pPvyUIAOj94xpMRBH97zbRnags7y4dASP/AUhn2VQz+F92R1n7AtQCt7lib4=,lzNw9gobtvh4oGGNMmc1eBUodShMf6VC4DCnyUZJogs=,hTnEhoxngs3J6mZwqpzs1WoextFcVnWtQomGZe//eDg=,uQCBh5EUkCNBCIYOaU2cbz0lxGkKpkjoNTB80VeDoDw=",
+  "pairingCode": "",
+  "logs": [
+    "[9:50:03 AM] New QR Code generated. Awaiting device linking on dashboard.",
+    "[9:50:01 AM] BUGGU MD Control Room backend online at: http://localhost:3000",
+    "[9:50:01 AM] Fetched latest WhatsApp Web connection version successfully: 2.3000.1035194821",
+    "[9:50:01 AM] Initializing Baileys core connection system...",
+    "[9:50:01 AM] Developing: Booting Vite dev server middleware...",
+    "[9:50:01 AM] No direct RENDER_EXTERNAL_URL detected in environment variables. Local keep-alive active."
+  ],
+  "settings": {
+    "prefix": ".",
+    "autoread": false,
+    "autoreact": false,
+    "autostatusview": false,
+    "autostatusreact": false,
+    "antidelete": false,
+    "anticall": false,
+    "antilink": false,
+    "autoreply": false,
+    "autoreactdm": false,
+    "autoreactgc": false,
+    "autosticker": false,
+    "autodownloadstatus": false,
+    "autosavecontacts": false,
+    "autowelcome": false,
+    "autogoodbye": false,
+    "ownerNumber": "9182749321"
+  }
+}

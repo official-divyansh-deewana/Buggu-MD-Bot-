@@ -11,7 +11,7 @@ import makeWASocket, {
   proto,
   downloadContentFromMessage,
   jidNormalizedUser,
-  makeCacheableSignalKeyStore
+  fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys';
 import { createServer as createViteServer } from 'vite';
 
@@ -165,12 +165,20 @@ async function connectToWhatsApp(phoneToPair?: string) {
   addLog("Initializing Baileys core connection system...");
   botState.status = 'connecting';
 
+  // Fetch latest WhatsApp Web version from WhatsApp CDN dynamically to override hardcoded outdated client versions (prevents 405 Method Not Allowed)
+  let version = [2, 3000, 1035194821];
+  try {
+    const fetched = await fetchLatestBaileysVersion();
+    addLog(`Fetched latest WhatsApp Web connection version successfully: ${fetched.version.join('.')}`);
+    version = fetched.version;
+  } catch (err: any) {
+    addLog(`Failed to fetch version from WhatsApp CDN: ${err.message}. Using stable verified fallback [2, 3000, 1035194821]`);
+  }
+
   try {
     sock = ((makeWASocket as any).default || makeWASocket)({
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'fatal' }))
-      } as any,
+      version,
+      auth: state,
       printQRInTerminal: true,
       logger: pino({ level: 'silent' }),
       browser: ["Ubuntu", "Chrome", "20.0.04"]
@@ -189,14 +197,24 @@ async function connectToWhatsApp(phoneToPair?: string) {
     return;
   }
 
-  sock.ev.on('creds.update', saveCreds);
+  // Securely lock listeners to only the current created socket instance to avoid stale connection loops
+  const currentSock = sock;
+
+  sock.ev.on('creds.update', () => {
+    if (sock !== currentSock) return;
+    saveCreds();
+  });
 
   // If pairing code is requested, handle it after socket becomes ready
   if (phoneToPair && !state.creds.registered) {
     setTimeout(async () => {
+      if (sock !== currentSock) {
+        addLog("Stale socket reference. Skipping pairing code generation.");
+        return;
+      }
       try {
         addLog(`Requesting pairing code from WhatsApp servers for number: ${phoneToPair}...`);
-        const code = await sock.requestPairingCode(phoneToPair);
+        const code = await currentSock.requestPairingCode(phoneToPair);
         botState.pairingCode = code;
         addLog(`✨ Successfully received WhatsApp pairing code: ${code}`);
       } catch (err: any) {
@@ -207,6 +225,10 @@ async function connectToWhatsApp(phoneToPair?: string) {
   }
 
   sock.ev.on('connection.update', (update: any) => {
+    if (sock !== currentSock) {
+      addLog("Discarding connection update from stale socket instance.");
+      return;
+    }
     const { connection, lastDisconnect, qr } = update;
     
     if (qr) {
@@ -227,10 +249,10 @@ async function connectToWhatsApp(phoneToPair?: string) {
       const errorMessage = (lastDisconnect?.error as any)?.message || '';
       
       // Check if session is explicitly logged out or authenticated files are corrupted/bad
+      // IMPORTANT: 405 is DisconnectReason.connectionReplaced. Must NEVER wipe session files on 405.
       const isLoggedOut = statusCode === DisconnectReason.loggedOut || 
                          statusCode === 401 || 
                          statusCode === 403 || 
-                         statusCode === 405 ||
                          statusCode === 411 || // Bad session metadata rejection
                          errorMessage.includes('Unauthorized') || 
                          errorMessage.includes('logged out') ||
@@ -254,13 +276,17 @@ async function connectToWhatsApp(phoneToPair?: string) {
         
         // Boot fresh connection completely clean to auto-generate scan-ready QR code immediately
         setTimeout(() => {
-          connectToWhatsApp();
+          if (sock === currentSock) {
+            connectToWhatsApp();
+          }
         }, 2000);
       } else {
         // Safe retry loop for transient network hiccups
         addLog("Scheduling standby reconnection after 8 seconds (transient network event)...");
         setTimeout(() => {
-          connectToWhatsApp();
+          if (sock === currentSock) {
+            connectToWhatsApp();
+          }
         }, 8000);
       }
     } else if (connection === 'open') {
@@ -268,7 +294,7 @@ async function connectToWhatsApp(phoneToPair?: string) {
       botState.qr = '';
       botState.pairingCode = '';
       lastActiveConnectedTimestamp = Date.now(); // Reset watchdog timeline to active uptime
-      addLog(`✨ WhatsApp Device online! Logged in as: ${sock.user.id}`);
+      addLog(`✨ WhatsApp Device online! Logged in as: ${currentSock.user.id}`);
  
       // Send dynamic connection confirmation notification message directly to WhatsApp device owner
       const myJid = jidNormalizedUser(sock.user.id);
@@ -311,14 +337,15 @@ async function connectToWhatsApp(phoneToPair?: string) {
 
   // Handle incoming Calls (Anti Call)
   sock.ev.on('call', async (calls: any[]) => {
+    if (sock !== currentSock) return;
     if (!settings.anticall) return;
     for (const call of calls) {
       if (call.status === 'offer') {
         addLog(`AntiCall: Automatically rejecting an incoming voice/video call from: ${call.from}`);
-        await sock.rejectCall(call.id, call.from);
+        await currentSock.rejectCall(call.id, call.from);
         
         // Notify caller in chat
-        await sock.sendMessage(call.from, { 
+        await currentSock.sendMessage(call.from, { 
           text: makeBrandedMessage(
             "Call Rejected", 
             "🚫 *SYSTEM WARNING*\n\nBUGGU MD does not allow direct incoming calls. Your call has been automatically disconnected. Please use text messaging."
@@ -333,6 +360,7 @@ async function connectToWhatsApp(phoneToPair?: string) {
 
   // Track edits and incoming messages for deletion backup
   sock.ev.on('messages.upsert', async (m: any) => {
+    if (sock !== currentSock) return;
     const msg = m.messages[0];
     if (!msg || !msg.message) return;
 
@@ -1093,6 +1121,7 @@ async function connectToWhatsApp(phoneToPair?: string) {
 
   // Track edits and deletions
   sock.ev.on('messages.update', async (updates: any[]) => {
+    if (sock !== currentSock) return;
     if (!settings.antidelete) return;
     for (const update of updates) {
       if (update.update && update.update.message === null) {
@@ -1171,9 +1200,9 @@ app.post('/api/pair-code', async (req, res) => {
     // Connect and start pairing process with fresh sandboxed session
     await connectToWhatsApp(sanitizedPhone);
     
-    // Active polling block: Wait for up to 10 seconds to see if pairing code was handshaked and generated
+    // Active polling block: Wait for up to 15 seconds to see if pairing code was handshaked and generated
     let attempts = 0;
-    while (attempts < 20 && !botState.pairingCode) {
+    while (attempts < 30 && !botState.pairingCode) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       attempts++;
     }
