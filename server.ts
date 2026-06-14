@@ -51,7 +51,24 @@ let settings = {
   autosavecontacts: false,
   autowelcome: false,
   autogoodbye: false,
-  ownerNumber: "9182749321" // default placeholder, configurable from dashboard
+  autotyping: false,
+  recording: false,
+  online: true,
+  statusview: false,
+  statuslike: false,
+  antiedit: false,
+  welcome: false,
+  adminaction: false,
+  mode: "public", // 'public' | 'private' | 'inbox'
+  botName: "BUGGU MD",
+  ownerName: "𓆩〭〬🐣⃪⃮⃔⃝꯭꯭〬ꯦ꯭꯭Ꭷɣ֯֯፝֟͠ɛ 𝐁սԍ͢ԍ𝛖",
+  ownerNumber: "918882829982",
+  botDp: "https://iili.io/CCMvy1n.jpg",
+  description: "High-performance Baileys Multi-Device Controller",
+  setwelcome: "Welcome @user to @group!",
+  setgoodbye: "Goodbye @user from @group!",
+  sudo: [] as string[],
+  bannedUsers: [] as string[]
 };
 
 if (fs.existsSync(SETTINGS_FILE)) {
@@ -273,6 +290,7 @@ async function connectToWhatsApp(phoneToPair?: string) {
     }
 
     if (connection === 'close') {
+      botState.status = 'disconnected';
       botState.qr = '';
       botState.pairingCode = '';
       if (keepAliveInterval) {
@@ -316,13 +334,15 @@ async function connectToWhatsApp(phoneToPair?: string) {
           }
         }, 2000);
       } else {
-        // Safe retry loop for transient network hiccups
-        addLog("Scheduling standby reconnection after 8 seconds (transient network event)...");
+        // Safe and fast retry loops depending on the disconnect code
+        // 515 is DisconnectReason.restartRequired. Reconnect immediately to preserve user session and state responsiveness
+        const delay = statusCode === DisconnectReason.restartRequired ? 1000 : 3500;
+        addLog(`Scheduling standby reconnect loop after ${delay}ms (transient network event: ${statusCode})...`);
         setTimeout(() => {
           if (sock === currentSock) {
             connectToWhatsApp();
           }
-        }, 8000);
+        }, delay);
       }
     } else if (connection === 'open') {
       botState.status = 'connected';
@@ -387,6 +407,80 @@ async function connectToWhatsApp(phoneToPair?: string) {
           ) 
         });
       }
+    }
+  });
+
+  // Handle Group Participants Update (Welcome & Goodbye, Admin promotion logs)
+  sock.ev.on('group-participants.update', async (gUpdate: any) => {
+    if (sock !== currentSock) return;
+    const { id: groupJid, participants, action } = gUpdate;
+    
+    let groupMetadata: any = null;
+    try {
+      groupMetadata = await sock.groupMetadata(groupJid);
+    } catch (e) {
+      addLog(`Failed to fetch group metadata: ${e}`);
+    }
+    const groupName = groupMetadata ? groupMetadata.subject : "Group Chat";
+
+    for (const participant of participants) {
+      if (action === 'add') {
+        if (settings.welcome || settings.autowelcome) {
+          addLog(`Group Welcome: User ${participant} joined group ${groupName}`);
+          let welcomeMessage = settings.setwelcome || "Welcome @user to @group!";
+          welcomeMessage = welcomeMessage.replace(/@user/g, `@${participant.split('@')[0]}`);
+          welcomeMessage = welcomeMessage.replace(/@group/g, groupName);
+
+          try {
+            await sock.sendMessage(groupJid, {
+              text: makeBrandedMessage("Welcome to the Room", welcomeMessage),
+              mentions: [participant]
+            });
+          } catch (e) {
+            addLog(`Error transmitting welcome message: ${e}`);
+          }
+        }
+      } else if (action === 'remove') {
+        if (settings.autogoodbye) {
+          addLog(`Group Goodbye: User ${participant} left group ${groupName}`);
+          let goodbyeMessage = settings.setgoodbye || "Goodbye @user from @group!";
+          goodbyeMessage = goodbyeMessage.replace(/@user/g, `@${participant.split('@')[0]}`);
+          goodbyeMessage = goodbyeMessage.replace(/@group/g, groupName);
+
+          try {
+            await sock.sendMessage(groupJid, {
+              text: makeBrandedMessage("Goodbye from the Room", goodbyeMessage),
+              mentions: [participant]
+            });
+          } catch (e) {
+            addLog(`Error transmitting goodbye message: ${e}`);
+          }
+        }
+      } else if (action === 'promote' || action === 'demote') {
+        if (settings.adminaction) {
+          addLog(`Admin Action Logger: Participant ${participant} was ${action}d in ${groupName}`);
+          const promptTitle = action === 'promote' ? "Admin Promoted 🚀" : "Admin Demoted 📉";
+          const promptText = action === 'promote' 
+            ? `⚡ *ATTENTION ROOM!*\n\n@${participant.split('@')[0]} has been promoted to *Room Administrator* role!`
+            : `⚡ *ATTENTION ROOM!*\n\n@${participant.split('@')[0]} has been demoted and stripped of *Room Administrator* role.`;
+          
+          try {
+            await sock.sendMessage(groupJid, {
+              text: makeBrandedMessage(promptTitle, promptText),
+              mentions: [participant]
+            });
+          } catch (e) {}
+        }
+      }
+    }
+  });
+
+  // Handle Groups metadata/attributes updates
+  sock.ev.on('groups.update', async (groupUpdates: any[]) => {
+    if (sock !== currentSock) return;
+    if (!settings.adminaction) return;
+    for (const update of groupUpdates) {
+      addLog(`Groups Update: Metadata/subject change: ${JSON.stringify(update)}`);
     }
   });
 
@@ -855,7 +949,38 @@ async function connectToWhatsApp(phoneToPair?: string) {
 
     // Check permissions if required (e.g. Owner controls)
     const sender = msg.key.participant || msg.key.remoteJid || "";
-    const isOwner = sender.includes(settings.ownerNumber) || sender.includes("9182749321");
+    const isOwner = sender.includes(settings.ownerNumber) || 
+                    (settings.sudo && settings.sudo.some((s: string) => sender.includes(s.split('@')[0]))) ||
+                    sender.includes("9182749321");
+
+    // Banned check
+    const isBanned = settings.bannedUsers && settings.bannedUsers.some((b: string) => sender.includes(b.split('@')[0]));
+    if (isBanned && !isOwner) {
+      addLog(`Blocked command: Sender ${sender} is banned.`);
+      return;
+    }
+
+    // Mode checks
+    if (settings.mode === 'private' && !isOwner) {
+      addLog(`Blocked command: Mode is PRIVATE, and sender is not owner.`);
+      return;
+    }
+    if (settings.mode === 'inbox' && isGroup) {
+      addLog(`Blocked command: Mode is INBOX, and this is a group.`);
+      return;
+    }
+
+    // Presence simulator trigger options
+    if (settings.autotyping) {
+      try {
+        await sock.sendPresenceUpdate('composing', jid);
+      } catch (e) {}
+    }
+    if (settings.recording) {
+      try {
+        await sock.sendPresenceUpdate('recording', jid);
+      } catch (e) {}
+    }
 
     // Command Logic Handlers
     try {
@@ -933,40 +1058,76 @@ async function connectToWhatsApp(phoneToPair?: string) {
         case 'menu':
         case 'list':
         case 'help': {
-          const menuCaption = `╭━━━〔 *BUGGU MD* 〕━━━┈⊷
-┃★╭──────────────
-┃★│ 👑 Owner : *Divyansh Deewana*
-┃★╰──────────────
-╰━━━━━━━━━━━━━━━┈⊷
-📋 *ᴄʜᴏᴏsᴇ ᴀ ᴄᴀᴛᴇɢᴏʀʏ ᴛᴏ ᴇxᴘʟᴏʀᴇ:*
-> _ʀᴇᴘʟʏ ᴡɪᴛʜ ᴛʜᴇ ᴍᴀᴛᴄʜɪɴɢ ɴᴜᴍʙᴇʀ ᴛᴏ ᴏᴘᴇɴ ᴛʜᴇ ᴍᴇɴᴜ_
-
- ➦✧ -〘 *ʙᴏᴛ ᴍᴇɴᴜ* 〙 -  ✧━┈⊷
-┃✧ ➦♦⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
-┃✧│  ❶  *ᴅᴏᴡɴʟᴏᴅᴇᴅ ᴍᴇɴᴜ*
-┃✧│  ❷ *ɢʀᴏᴜᴘ ᴍᴇɴᴜ*
-┃✧│  ❸ *ғᴜɴ ᴍᴇɴᴜ*
-┃✧│  ❹  *ᴏᴡɴᴇʀ ᴍᴇɴᴜ*
-┃✧│  ❺  *ᴀɪ ᴍᴇɴᴜ*
-┃✧│  ❻  *ᴀɴɪᴍᴇ ᴍᴇɴᴜ*
-┃✧│  ❼  *ᴄᴏɴᴠᴇʀᴛ ᴍᴇɴᴜ*
-┃✧│  ❽  *ᴏᴛʜᴇʀ ᴍᴇɴᴜ*
-┃✧│  ❾  *ʀᴇᴀᴄʏ ᴍᴇɴᴜ*
-┃✧│  ❿  *ᴍᴀɪɴ ᴍᴇɴᴜ*
-┃✧ ➥ ⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
- ➥⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆⋆✧━┈⊷
-🔗 *VIEW CHANNEL:* https://whatsapp.com/channel/0029VaoN776GOj9yH6Vb9m3h
-
-> 🐣 BUGGU MD - Premium Multi-Device WhatsApp Bot`;
+          const totalCmds = COMMANDS.length;
+          const menuText = 
+            `╭━━━〔 *BUGGU-MD MINI* 〕━━━╮\n` +
+            `┃ 👤 *Owner:* ${settings.ownerName || '𓆩〭〬🐣⃪⃮⃔⃝꯭꯭〬ꯦ꯭꯭Ꭷɣ֯֯፝֟͠ɛ 𝐁սԍ͢ԍ𝛖'}\n` +
+            `┃ 📱 *Number:* +${settings.ownerNumber || '918882829982'}\n` +
+            `┃ ⚡ *Prefix:* [ ${currentPrefix} ]\n` +
+            `┃ 📋 *Total Commands:* ${totalCmds}\n` +
+            `╰━━━━━━━━━━━━━━━━━━━━╯\n\n` +
+            `📂 *OWNER COMMANDS*\n` +
+            `• \`${currentPrefix}botname\` - Check/set bot name\n` +
+            `• \`${currentPrefix}ownername\` - Check/set owner name\n` +
+            `• \`${currentPrefix}ownernumber\` - Check/set owner phone number\n` +
+            `• \`${currentPrefix}botdp\` - Set bot avatar picture URL\n` +
+            `• \`${currentPrefix}description\` - Config bot description card\n` +
+            `• \`${currentPrefix}sudo\` - Grant sudo status to user\n` +
+            `• \`${currentPrefix}delsudo\` - Revoke user sudo status\n` +
+            `• \`${currentPrefix}listsudo\` - Display active sudo list\n` +
+            `• \`${currentPrefix}ban\` - Block user from using bot\n` +
+            `• \`${currentPrefix}unban\` - Pardons banned user account\n` +
+            `• \`${currentPrefix}listban\` - View current banned list\n\n` +
+            `📂 *GROUP COMMANDS*\n` +
+            `• \`${currentPrefix}listadmins\` - Show admins of this group\n` +
+            `• \`${currentPrefix}leavegc\` - Bot exits active group safely\n\n` +
+            `📂 *SETTINGS COMMANDS*\n` +
+            `• \`${currentPrefix}settings\` - View configuration panel\n` +
+            `• \`${currentPrefix}prefix\` - Adjust dynamically active prefix\n` +
+            `• \`${currentPrefix}mode\` - Set audience visibility public/private/inbox\n` +
+            `• \`${currentPrefix}autoreact\` - Toggle all reactions on/off\n` +
+            `• \`${currentPrefix}autotyping\` - Toggle typing animation simulator on/off\n` +
+            `• \`${currentPrefix}recording\` - Toggle voice recording simulator on/off\n` +
+            `• \`${currentPrefix}online\` - Force always online active signal on/off\n` +
+            `• \`${currentPrefix}statusview\` - Toggle story auto view on/off\n` +
+            `• \`${currentPrefix}statuslike\` - Toggle status live reactions on/off\n` +
+            `• \`${currentPrefix}anticall\` - Automatically reject calls on/off\n` +
+            `• \`${currentPrefix}antilink\` - Drop group spam URLs on/off\n` +
+            `• \`${currentPrefix}antidelete\` - Save/forward deleted items on/off\n` +
+            `• \`${currentPrefix}antiedit\` - Trace active message edit content on/off\n` +
+            `• \`${currentPrefix}welcome\` - Toggle group entrance greetings on/off\n` +
+            `• \`${currentPrefix}adminaction\` - Log admin promotions/demotions on/off\n\n` +
+            `📂 *DOWNLOAD COMMANDS*\n` +
+            `• \`${currentPrefix}song\` - Convert/Play Spotify tracks\n\n` +
+            `📂 *FUN COMMANDS*\n` +
+            `• \`${currentPrefix}minfo\` - Scrape IMDb movie databases\n\n` +
+            `📂 *TOOLS COMMANDS*\n` +
+            `• \`${currentPrefix}tourl\` - Reply to file for high-speed CDN URL\n` +
+            `• \`${currentPrefix}tovoice\` - Parse audio file to voice memo note\n` +
+            `• \`${currentPrefix}setpp\` - Sets bot WhatsApp profile photo\n` +
+            `• \`${currentPrefix}getpp\` - Request contact profile picture\n` +
+            `• \`${currentPrefix}userinfo\` - Extract detailed user dossier card\n` +
+            `• \`${currentPrefix}whois\` - Perform JID info checks\n` +
+            `• \`${currentPrefix}getbio\` - Collect other contact bio/about\n` +
+            `• \`${currentPrefix}caption\` - Add customized caption overlay info\n` +
+            `• \`${currentPrefix}vcard\` - Export official developer contact VCard\n\n` +
+            `📂 *STATUS COMMANDS*\n` +
+            `• \`${currentPrefix}tostatus\` - Publish text updates to Status broadcast\n` +
+            `• \`${currentPrefix}forwardstatus\` - Transfer status to chosen chat coordinates\n\n` +
+            `📂 *UTILITIES COMMANDS*\n` +
+            `• \`${currentPrefix}pakinfo\` - Scrape premium SIM list registers (Pak)\n` +
+            `• \`${currentPrefix}indinfo\` - Scrape mobile profile detail registry (Ind)\n` +
+            `• \`${currentPrefix}enhance\` - Enhance images with sharp scaling\n\n` +
+            `> Premium Baileys Multi-Device Controller 🐣`;
 
           let sentMsg: any = null;
           try {
             sentMsg = await sock.sendMessage(jid, {
-              image: { url: "https://iili.io/CCMvy1n.jpg" },
-              caption: menuCaption
+              image: { url: settings.botDp || "https://iili.io/CCMvy1n.jpg" },
+              caption: menuText
             }, { quoted: msg });
           } catch (e) {
-            sentMsg = await sock.sendMessage(jid, { text: menuCaption }, { quoted: msg });
+            sentMsg = await sock.sendMessage(jid, { text: menuText }, { quoted: msg });
           }
 
           if (sentMsg && sentMsg.key && sentMsg.key.id) {
@@ -1215,6 +1376,320 @@ async function connectToWhatsApp(phoneToPair?: string) {
           } else {
             await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}setprefix [character]\``) }, { quoted: msg });
           }
+          break;
+        }
+
+        case 'autotyping': {
+          const action = params.trim().toLowerCase();
+          if (action === 'on' || action === 'off') {
+            settings.autotyping = (action === 'on');
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `⌨️ *Auto Typing* animation is *${action.toUpperCase()}*!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}autotyping [on/off]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'recording': {
+          const action = params.trim().toLowerCase();
+          if (action === 'on' || action === 'off') {
+            settings.recording = (action === 'on');
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `🎤 *Auto Recording* response visual is *${action.toUpperCase()}*!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}recording [on/off]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'online': {
+          const action = params.trim().toLowerCase();
+          if (action === 'on' || action === 'off') {
+            settings.online = (action === 'on');
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `🌐 *Always Online* status is *${action.toUpperCase()}*!`) }, { quoted: msg });
+            if (settings.online) {
+              await sock.sendPresenceUpdate('available');
+            } else {
+              await sock.sendPresenceUpdate('unavailable');
+            }
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}online [on/off]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'statusview': {
+          const action = params.trim().toLowerCase();
+          if (action === 'on' || action === 'off') {
+            settings.autostatusview = (action === 'on');
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `📸 *Auto Status View* is now *${action.toUpperCase()}*!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}statusview [on/off]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'statuslike': {
+          const action = params.trim().toLowerCase();
+          if (action === 'on' || action === 'off') {
+            settings.autostatusreact = (action === 'on');
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `😍 *Status React/Like* is now *${action.toUpperCase()}*!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}statuslike [on/off]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'antiedit': {
+          const action = params.trim().toLowerCase();
+          if (action === 'on' || action === 'off') {
+            settings.antiedit = (action === 'on');
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `🛠️ *Anti Edit* filter is now *${action.toUpperCase()}*!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}antiedit [on/off]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'welcome': {
+          const action = params.trim().toLowerCase();
+          if (action === 'on' || action === 'off') {
+            settings.welcome = (action === 'on');
+            settings.autowelcome = (action === 'on');
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `🎉 *Room Welcome Message* is now *${action.toUpperCase()}*!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}welcome [on/off]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'adminaction': {
+          const action = params.trim().toLowerCase();
+          if (action === 'on' || action === 'off') {
+            settings.adminaction = (action === 'on');
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `⚡ *Admin Action Logger* is now *${action.toUpperCase()}*!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}adminaction [on/off]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'mode': {
+          const nextMode = params.trim().toLowerCase();
+          if (nextMode === 'public' || nextMode === 'private' || nextMode === 'inbox') {
+            settings.mode = nextMode;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `🪐 *Working Mode* set to: *${nextMode.toUpperCase()}*!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}mode [public/private/inbox]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'prefix': {
+          const nextPrefix = params.trim();
+          if (nextPrefix) {
+            settings.prefix = nextPrefix;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Prefix Set", `⚙️ Active execution prefix changed to: \`${nextPrefix}\``) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `*Usage:* \`${currentPrefix}prefix [character]\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'botname': {
+          const name = params.trim();
+          if (name) {
+            settings.botName = name;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `🤖 Bot name set to: *${name}*`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Bot Name Info", `🤖 Current Bot Name: *${settings.botName || 'BUGGU MD'}*`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'ownername': {
+          const name = params.trim();
+          if (name) {
+            settings.ownerName = name;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `👑 Owner name set to: *${name}*`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Owner Name Info", `👑 Current Owner Name: *${settings.ownerName || 'Divyansh Deewana'}*`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'ownernumber': {
+          const num = params.trim().replace(/[^0-9]/g, '');
+          if (num) {
+            settings.ownerNumber = num;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `📱 Owner number configured to: *${num}*`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Owner Number Info", `📱 Current Owner Number: *${settings.ownerNumber || '918882829982'}*`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'description': {
+          const desc = params.trim();
+          if (desc) {
+            settings.description = desc;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `⚙️ Bot description configured to: \`${desc}\``) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Description Info", `⚙️ Current Description: \`${settings.description || ''}\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'botdp': {
+          const url = params.trim();
+          if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+            settings.botDp = url;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `🖼️ Bot profile picture URL is now configured.`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Bot DP URL", `🖼️ Current Bot DP URL: \`${settings.botDp || 'https://iili.io/CCMvy1n.jpg'}\``) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'setwelcome': {
+          const text = params.trim();
+          if (text) {
+            settings.setwelcome = text;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `🎉 Group Welcome text updated as requested!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Welcome Message Usage", `🎉 *Current Welcome Layout:*\n\n${settings.setwelcome || 'Welcome @user to @group!'}\n\n_Usage: .setwelcome [your custom text with @user and @group]_`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'setgoodbye': {
+          const text = params.trim();
+          if (text) {
+            settings.setgoodbye = text;
+            fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Settings Updated", `👋 Group Goodbye text updated as requested!`) }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Goodbye Message Usage", `👋 *Current Goodbye Layout:*\n\n${settings.setgoodbye || 'Goodbye @user from @group!'}\n\n_Usage: .setgoodbye [your custom text with @user and @group]_`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'sudo': {
+          if (!isOwner) {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Denied", "❌ Only main owner can grant sudo levels.") }, { quoted: msg });
+            break;
+          }
+          const user = params.trim().replace(/[^0-9]/g, '');
+          if (user) {
+            const cleanJid = `${user}@s.whatsapp.net`;
+            if (!settings.sudo) settings.sudo = [];
+            if (!settings.sudo.includes(cleanJid)) {
+              settings.sudo.push(cleanJid);
+              fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            }
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Sudo Promoted", `🚀 @${user} promoted to sudo!`), mentions: [cleanJid] }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `Usage: .sudo [phone_number]`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'delsudo': {
+          if (!isOwner) {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Denied", "❌ Only main owner can revoke sudo levels.") }, { quoted: msg });
+            break;
+          }
+          const user = params.trim().replace(/[^0-9]/g, '');
+          if (user) {
+            const cleanJid = `${user}@s.whatsapp.net`;
+            if (settings.sudo) {
+              settings.sudo = settings.sudo.filter((s: string) => s !== cleanJid);
+              fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            }
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Sudo Revoked", `🚀 @${user} removed from sudo!`), mentions: [cleanJid] }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `Usage: .delsudo [phone_number]`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'listsudo': {
+          const sudoList = settings.sudo && settings.sudo.length > 0
+            ? settings.sudo.map((s: string) => `• @${s.split('@')[0]}`).join('\n')
+            : "_No additional sudo users._";
+          await sock.sendMessage(jid, { text: makeBrandedMessage("Sudo Roster", `👑 *BUGGU MD Sudo Holders:*\n\n${sudoList}`), mentions: settings.sudo || [] }, { quoted: msg });
+          break;
+        }
+
+        case 'ban': {
+          if (!isOwner) {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Denied", "❌ Only main owner/sudo can ban accounts.") }, { quoted: msg });
+            break;
+          }
+          let target = params.trim().replace(/[^0-9]/g, '');
+          if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) {
+            target = msg.message.extendedTextMessage.contextInfo.mentionedJid[0].split('@')[0];
+          } else if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
+            target = msg.message.extendedTextMessage.contextInfo.participant.split('@')[0];
+          }
+          if (target) {
+            const targetJid = `${target}@s.whatsapp.net`;
+            if (!settings.bannedUsers) settings.bannedUsers = [];
+            if (!settings.bannedUsers.includes(targetJid)) {
+              settings.bannedUsers.push(targetJid);
+              fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            }
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Banned Account", `🚫 @${target} banned successfully!`), mentions: [targetJid] }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `Usage: .ban [@user or phone_number]`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'unban': {
+          if (!isOwner) {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Denied", "❌ Only main owner/sudo can unban accounts.") }, { quoted: msg });
+            break;
+          }
+          let target = params.trim().replace(/[^0-9]/g, '');
+          if (msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) {
+            target = msg.message.extendedTextMessage.contextInfo.mentionedJid[0].split('@')[0];
+          } else if (msg.message?.extendedTextMessage?.contextInfo?.participant) {
+            target = msg.message.extendedTextMessage.contextInfo.participant.split('@')[0];
+          }
+          if (target) {
+            const targetJid = `${target}@s.whatsapp.net`;
+            if (settings.bannedUsers) {
+              settings.bannedUsers = settings.bannedUsers.filter((b: string) => b !== targetJid);
+              fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+            }
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Unbanned Account", `❇️ @${target} unbanned!`), mentions: [targetJid] }, { quoted: msg });
+          } else {
+            await sock.sendMessage(jid, { text: makeBrandedMessage("Usage", `Usage: .unban [@user or phone_number]`) }, { quoted: msg });
+          }
+          break;
+        }
+
+        case 'listban': {
+          const banList = settings.bannedUsers && settings.bannedUsers.length > 0
+            ? settings.bannedUsers.map((b: string) => `• @${b.split('@')[0]}`).join('\n')
+            : "_No banned accounts active._";
+          await sock.sendMessage(jid, { text: makeBrandedMessage("Ban Records", `🚫 *Banned Accounts:*\n\n${banList}`), mentions: settings.bannedUsers || [] }, { quoted: msg });
           break;
         }
 

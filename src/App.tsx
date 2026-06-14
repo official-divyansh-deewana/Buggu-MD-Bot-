@@ -31,6 +31,12 @@ interface BotSettings {
   autosavecontacts: boolean;
   autowelcome: boolean;
   autogoodbye: boolean;
+  autotyping?: boolean;
+  recording?: boolean;
+  online?: boolean;
+  antiedit?: boolean;
+  welcome?: boolean;
+  adminaction?: boolean;
   ownerNumber: string;
 }
 
@@ -56,7 +62,13 @@ export default function App() {
     autosavecontacts: false,
     autowelcome: false,
     autogoodbye: false,
-    ownerNumber: '9182749321'
+    autotyping: false,
+    recording: false,
+    online: true,
+    antiedit: false,
+    welcome: false,
+    adminaction: false,
+    ownerNumber: '918882829982'
   });
 
   const [activeTab, setActiveTab] = useState<'console' | 'settings' | 'commands'>('console');
@@ -751,6 +763,102 @@ export default function App() {
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.autoreactgc ? 'bg-amber-500' : 'bg-gray-800'}`}
                   >
                     <span className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${settings.autoreactgc ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {/* AUTO TYPING */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/40 rounded-xl border border-gray-800/60 hover:border-gray-800 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center">
+                      <span className="mr-2">⌨️</span> Auto Typing Simulator
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">Simulate active typing composing status on receipt.</p>
+                  </div>
+                  <button 
+                    onClick={() => handleToggle('autotyping')}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.autotyping ? 'bg-amber-500' : 'bg-gray-800'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${settings.autotyping ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {/* AUTO RECORDING */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/40 rounded-xl border border-gray-800/60 hover:border-gray-800 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center">
+                      <span className="mr-2">🎤</span> Auto Recording Simulator
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">Simulate voice recording status on receipt.</p>
+                  </div>
+                  <button 
+                     onClick={() => handleToggle('recording')}
+                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.recording ? 'bg-amber-500' : 'bg-gray-800'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${settings.recording ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {/* ALWAYS ONLINE */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/40 rounded-xl border border-gray-800/60 hover:border-gray-800 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center">
+                      <span className="mr-2">🌐</span> Always Online Mode
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">Force always online presence signals to WhatsApp.</p>
+                  </div>
+                  <button 
+                    onClick={() => handleToggle('online')}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.online ? 'bg-amber-500' : 'bg-gray-800'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${settings.online ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {/* ANTI EDIT */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/40 rounded-xl border border-gray-800/60 hover:border-gray-800 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center">
+                      <span className="mr-2">🛠️</span> Anti Edit Monitor
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">Trace/Highlight modified message content logs.</p>
+                  </div>
+                  <button 
+                    onClick={() => handleToggle('antiedit')}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.antiedit ? 'bg-amber-500' : 'bg-gray-800'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${settings.antiedit ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {/* WELCOME */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/40 rounded-xl border border-gray-800/60 hover:border-gray-800 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center">
+                      <span className="mr-2">🎉</span> Welcome Greetings
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">Broadcast custom greetings to newly joined group members.</p>
+                  </div>
+                  <button 
+                    onClick={() => handleToggle('welcome')}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.welcome ? 'bg-amber-500' : 'bg-gray-800'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${settings.welcome ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+
+                {/* ADMIN ACTION */}
+                <div className="flex items-center justify-between p-4 bg-gray-900/40 rounded-xl border border-gray-800/60 hover:border-gray-800 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center">
+                      <span className="mr-2">⚡</span> Admin Promotions Log
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">Track and notify member role promotions or demotions.</p>
+                  </div>
+                  <button 
+                    onClick={() => handleToggle('adminaction')}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.adminaction ? 'bg-amber-500' : 'bg-gray-800'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${settings.adminaction ? 'translate-x-6' : 'translate-x-1'}`} />
                   </button>
                 </div>
 

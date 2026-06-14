@@ -307,5 +307,166 @@ export const COMMANDS: Command[] = [
     category: "SYSTEM",
     description: "Explore official BUGGU developer community channels.",
     usage: ".channel"
+  },
+  {
+    name: "welcome",
+    emoji: "👋",
+    category: "AUTOMATION",
+    description: "Toggle automated welcome greeting notifications on group entry.",
+    usage: ".welcome [on/off]"
+  },
+  {
+    name: "autotyping",
+    emoji: "⌨️",
+    category: "AUTOMATION",
+    description: "Toggle auto typing simulation behavior on incoming messages.",
+    usage: ".autotyping [on/off]"
+  },
+  {
+    name: "recording",
+    emoji: "🎤",
+    category: "AUTOMATION",
+    description: "Toggle auto voice recording simulation behavior.",
+    usage: ".recording [on/off]"
+  },
+  {
+    name: "online",
+    emoji: "🌐",
+    category: "AUTOMATION",
+    description: "Force bot to stay always available online on WhatsApp.",
+    usage: ".online [on/off]"
+  },
+  {
+    name: "statusview",
+    emoji: "📸",
+    category: "AUTOMATION",
+    description: "Toggle status auto viewing system.",
+    usage: ".statusview [on/off]"
+  },
+  {
+    name: "statuslike",
+    emoji: "😍",
+    category: "AUTOMATION",
+    description: "Toggle status auto liking and reacting system.",
+    usage: ".statuslike [on/off]"
+  },
+  {
+    name: "antiedit",
+    emoji: "🛠️",
+    category: "SECURITY",
+    description: "Track message edits and print original content into chat.",
+    usage: ".antiedit [on/off]"
+  },
+  {
+    name: "adminaction",
+    emoji: "⚡",
+    category: "SECURITY",
+    description: "Log group administrative promotions and demotions live.",
+    usage: ".adminaction [on/off]"
+  },
+  {
+    name: "mode",
+    emoji: "🪐",
+    category: "SYSTEM",
+    description: "Toggle bot responder audience mode to public, private, or inbox solo.",
+    usage: ".mode [public/private/inbox]"
+  },
+  {
+    name: "prefix",
+    emoji: "⚙️",
+    category: "SYSTEM",
+    description: "Configure bot response indicator prefix alias.",
+    usage: ".prefix [character]"
+  },
+  {
+    name: "botname",
+    emoji: "🤖",
+    category: "SYSTEM",
+    description: "Double-check or modify target bot label designation.",
+    usage: ".botname [new name]"
+  },
+  {
+    name: "ownername",
+    emoji: "👑",
+    category: "SYSTEM",
+    description: "Double-check or modify core developer name credential.",
+    usage: ".ownername [new name]"
+  },
+  {
+    name: "ownernumber",
+    emoji: "📱",
+    category: "SYSTEM",
+    description: "Double-check or change primary registered owner contact JID.",
+    usage: ".ownernumber [phone]"
+  },
+  {
+    name: "description",
+    emoji: "⚙️",
+    category: "SYSTEM",
+    description: "Check or configure server status description card.",
+    usage: ".description [text]"
+  },
+  {
+    name: "botdp",
+    emoji: "🖼️",
+    category: "SYSTEM",
+    description: "View or configure bot default profile picture asset link.",
+    usage: ".botdp [imageUrl]"
+  },
+  {
+    name: "setwelcome",
+    emoji: "🎉",
+    category: "AUTOMATION",
+    description: "Set customized group entry welcome notification layout.",
+    usage: ".setwelcome [text]"
+  },
+  {
+    name: "setgoodbye",
+    emoji: "👋",
+    category: "AUTOMATION",
+    description: "Set customized group departure goodbye layout.",
+    usage: ".setgoodbye [text]"
+  },
+  {
+    name: "sudo",
+    emoji: "🚀",
+    category: "SECURITY",
+    description: "Add a phone number to standard sudo master list.",
+    usage: ".sudo [phone]"
+  },
+  {
+    name: "delsudo",
+    emoji: "🚪",
+    category: "SECURITY",
+    description: "Remove phone number from master sudo registry.",
+    usage: ".delsudo [phone]"
+  },
+  {
+    name: "listsudo",
+    emoji: "👑",
+    category: "SECURITY",
+    description: "View all master sudo key holders listed on the bot.",
+    usage: ".listsudo"
+  },
+  {
+    name: "ban",
+    emoji: "🚫",
+    category: "SECURITY",
+    description: "Ban targeted account from executing bot controls.",
+    usage: ".ban [@user / phone]"
+  },
+  {
+    name: "unban",
+    emoji: "❇️",
+    category: "SECURITY",
+    description: "Pardon account to regain active bot lookup permissions.",
+    usage: ".unban [@user / phone]"
+  },
+  {
+    name: "listban",
+    emoji: "📂",
+    category: "SECURITY",
+    description: "View compiled list of all restricted user directories.",
+    usage: ".listban"
   }
 ];
